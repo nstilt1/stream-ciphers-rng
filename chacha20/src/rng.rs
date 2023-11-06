@@ -104,6 +104,14 @@ impl From<[u8; 32]> for Seed {
         Self(value)
     }
 }
+#[cfg(feature = "zeroize")]
+impl From<&mut [u8; 32]> for Seed {
+    fn from(value: &mut [u8; 32]) -> Self {
+        let seed = Self(*value);
+        value.zeroize();
+        seed
+    }
+}
 impl Debug for Seed {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.0.fmt(f)
@@ -131,16 +139,40 @@ impl From<[u8; 5]> for WordPosInput {
         Self(value)
     }
 }
+#[cfg(feature = "zeroize")]
+impl From<&mut [u8; 5]> for WordPosInput {
+    fn from(value: &mut [u8; 5]) -> Self {
+        let input = WordPosInput(*value);
+        value.zeroize();
+        input
+    }
+}
 impl From<u64> for WordPosInput {
     fn from(value: u64) -> Self {
         let shifted: ZeroizingU64Bytes = (value >> 4).into();
-        let zeroize: ZeroizingU64Bytes = value.into();
+        let original_bytes: ZeroizingU64Bytes = value.into();
         let mut result = [0u8; 5];
         // copy the "index" byte to Self.0[0]
-        result[0] = zeroize.0[0];
+        result[0] = original_bytes.0[0];
         // copy the block_pos 32 bits to Self.0[1..5]
         result[1..5].copy_from_slice(&shifted.0[0..4]);
 
+        Self(result)
+    }
+}
+#[cfg(feature = "zeroize")]
+impl From<&mut u64> for WordPosInput {
+    fn from(value: &mut u64) -> Self {
+        let mut shifted = *value >> 4;
+        let mut shifted_bytes = shifted.to_le_bytes();
+        let mut original_bytes = value.to_le_bytes();
+        let mut result = [0u8; 5];
+        result[0] = original_bytes[0];
+        result[1..5].copy_from_slice(&shifted_bytes[0..4]);
+        value.zeroize();
+        shifted.zeroize();
+        shifted_bytes.zeroize();
+        original_bytes.zeroize();
         Self(result)
     }
 }
@@ -160,6 +192,14 @@ struct ZeroizingU128Bytes([u8; 16]);
 impl From<u128> for ZeroizingU128Bytes {
     fn from(value: u128) -> Self {
         Self(value.to_le_bytes())
+    }
+}
+#[cfg(feature = "zeroize")]
+impl From<&mut u128> for ZeroizingU128Bytes {
+    fn from(value: &mut u128) -> Self {
+        let bytes = Self::from(*value);
+        value.zeroize();
+        bytes
     }
 }
 #[cfg(feature = "zeroize")]
@@ -228,6 +268,14 @@ impl From<[u8; 12]> for StreamId {
         Self(value)
     }
 }
+#[cfg(feature = "zeroize")]
+impl From<&mut [u8; 12]> for StreamId {
+    fn from(value: &mut [u8; 12]) -> Self {
+        let v = Self(*value);
+        value.zeroize();
+        v
+    }
+}
 impl From<u128> for StreamId {
     fn from(value: u128) -> Self {
         let zeroize: StreamIdU128 = value.into();
@@ -235,6 +283,17 @@ impl From<u128> for StreamId {
         let bytes: ZeroizingU128Bytes = zeroize.0.into();
         lower_12_bytes.copy_from_slice(&bytes.0[0..12]);
         Self(lower_12_bytes)
+    }
+}
+#[cfg(feature = "zeroize")]
+impl From<&mut u128> for StreamId {
+    fn from(value: &mut u128) -> Self {
+        let mut bytes = value.to_le_bytes();
+        let mut lower_12 = [0u8; 12];
+        lower_12.copy_from_slice(&bytes[0..12]);
+        bytes.zeroize();
+        value.zeroize();
+        Self(lower_12)
     }
 }
 #[cfg(feature = "zeroize")]
@@ -711,10 +770,10 @@ mod tests {
     #[test]
     #[cfg(feature = "zeroize")]
     fn test_zeroize_inputs_external() {
-        let initial_seed = KEY.clone();
+        let mut initial_seed = KEY.clone();
         let ptr = initial_seed.as_ptr();
         {
-            let mut rng = ChaChaRng::from_seed(initial_seed.into());
+            let mut rng = ChaChaRng::from_seed((&mut initial_seed).into());
             rng.fill_bytes(&mut [0u8; 32]);
         }
         let memory_inspection = unsafe { core::slice::from_raw_parts(ptr, 32) };
@@ -724,9 +783,10 @@ mod tests {
     #[test]
     #[cfg(feature = "zeroize")]
     fn test_zeroize_inputs_internal() {
-        let initial_seed: Seed = KEY.clone().into();
-        let ptr = initial_seed.0.as_ptr();
-        core::mem::drop(initial_seed);
+        let ptr = {
+            let initial_seed: Seed = KEY.clone().into();
+            initial_seed.0.as_ptr()
+        };
         let memory_inspection = unsafe { core::slice::from_raw_parts(ptr, 32) };
         assert_ne!(&KEY, memory_inspection);
     }
