@@ -100,8 +100,11 @@ impl AsMut<[u8]> for Seed {
     }
 }
 impl From<[u8; 32]> for Seed {
-    fn from(value: [u8; 32]) -> Self {
-        Self(value)
+    fn from(mut value: [u8; 32]) -> Self {
+        let seed = Self(value);
+        #[cfg(feature = "zeroize")]
+        value.zeroize();
+        seed
     }
 }
 #[cfg(feature = "zeroize")]
@@ -447,7 +450,7 @@ macro_rules! impl_chacha_rng {
         /// // the following inputs are examples and are neither recommended nor suggested values
         ///
         /// let seed = [42u8; 32];
-        /// let mut rng = ChaCha20Rng::from_seed(seed);
+        /// let mut rng = ChaCha20Rng::from_seed(seed.into());
         /// rng.set_stream(100);
         ///
         /// // you can also use a [u8; 12] in `.set_stream()`, which has a *minor*
