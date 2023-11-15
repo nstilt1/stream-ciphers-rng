@@ -391,7 +391,7 @@ macro_rules! impl_chacha_rng {
                     // fills with as many bytes from the currently generated buffer as necessary
                     if self.index != 0 {
                         while remaining_in_block > 0 && block < 4 {
-                            dest[dest_pos..remaining_in_block].copy_from_slice(
+                            dest[dest_pos..remaining_in_block+dest_pos].copy_from_slice(
                                 &self.core.parallel_blocks[block][pos..remaining_in_block],
                             );
                             dest_pos += remaining_in_block;
@@ -450,7 +450,7 @@ macro_rules! impl_chacha_rng {
                     // a similar loop that was at the beginning of this file
                     pos = 0;
                     remaining_in_block = Block::block_size().min(tail.len() - dest_pos);
-                    tail[dest_pos..remaining_in_block].copy_from_slice(
+                    tail[dest_pos..dest_pos+remaining_in_block].copy_from_slice(
                         &self.core.parallel_blocks[block][pos..remaining_in_block],
                     );
                     dest_pos += remaining_in_block;
