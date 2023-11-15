@@ -13,6 +13,8 @@ use core::fmt::Debug;
 use cipher::{BlockSizeUser, StreamCipherCore, Unsigned};
 use rand_core::{impls::fill_via_u32_chunks, CryptoRng, Error, RngCore, SeedableRng};
 
+use inout::InOutBuf;
+
 #[cfg(feature = "serde1")]
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -377,19 +379,85 @@ macro_rules! impl_chacha_rng {
 
             #[inline]
             fn fill_bytes(&mut self, dest: &mut [u8]) {
-                let mut read_len = 0;
-                while read_len < dest.len() {
-                    if self.index >= self.results.as_ref().len() {
-                        self.generate_and_set(0);
-                    }
-                    let (consumed_u32, filled_u8) = fill_via_u32_chunks(
-                        &self.results.as_ref()[self.index..],
-                        &mut dest[read_len..],
-                    );
+                // the position of the index in ParBlocks<Block>, index * 4 bytes per u32 % 64
+                // this is rounded to the nearest u32, which isn't necessarily a bad thing, but it could be more precise
+                let mut pos = (self.index << 2) & (Block::block_size() - 1);
+                // the current ParBlocks index: ParBlocks[block], index / 16 u32s per block
+                let mut block = self.index >> 4;
+                let mut remaining = BlockRngResults::block_size() - (self.index << 2);
+                let mut dest_len = dest.len();
 
-                    self.index += consumed_u32;
-                    read_len += filled_u8;
+                let mut dest_pos = 0;
+                if remaining != 0 {
+                    let mut remaining_in_block = (Block::block_size() - pos).min(dest_len);
+                    // fills with as many bytes from the currently generated buffer as necessary
+                    if self.index != 0 {
+                        while remaining_in_block > 0 && block < 4 {
+                            dest[dest_pos..remaining_in_block].copy_from_slice(
+                                &self.core.parallel_blocks[block][pos..remaining_in_block]
+                            );
+                            dest_pos += remaining_in_block;
+                            block += 1;
+                            pos = 0;
+                            remaining_in_block = Block::block_size().min(dest_len - dest_pos);
+                        }
+                        if dest_len == dest_pos {
+                            self.index += dest_pos >> 2;
+                            return;
+                        }
+                    }
+                    
+                    self.core.counter = self.core.counter.wrapping_add(1);
                 }
+                let (filled, mut tail) = dest.split_at(dest_pos);
+                
+                // write to all of the full 256-byte chunks by excluding the last 8 bits from the len
+                // for the upper bound index
+                let writable_block_bytes = tail.len() & !(0xFF);
+                let (mut chunks, mut tail) = tail.split_at(writable_block_bytes);
+                
+                // this could be one way to write blocks directly into `chunks`
+                self.core.block.apply_keystream_blocks_inout((&mut chunks).into());
+                
+                // this could be another way to write blocks directly into `chunks`
+                self.core.block.write_keystream_blocks((&mut chunks).into());
+
+                // adjust the counter
+                self.core.counter = self.core.counter.wrapping_add((chunks.len() >> 8) as u32);
+                dest_pos = writable_block_bytes;
+
+                // this is another way to write them, one 256-byte chunk at a time, but it no work
+                /*
+                // loop over the full 256-byte chunks
+                for x in 0..(right.len() >> 8) {
+                    // fill the xth 256-byte chunk
+                    self.core.block.write_keystream_blocks((&mut right[x << 8..x << 9]).into());
+                    self.counter = self.counter.wrapping_add(1);
+                }
+                */
+
+                // fill in the tail and regenerate the internal buffer
+                self.core.generate(&mut self.results);
+                if dest_pos == 0 {
+                    return;
+                }
+                dest_pos = 0;
+
+                // tail.len() will be less than 256
+                let remaining_in_block: usize;
+                block = 0;
+                while dest_pos < tail.len() {
+                    // a similar loop that was at the beginning of this file
+                    pos = 0;
+                    remaining_in_block = Block::block_size().min(tail.len() - dest_pos);
+                    tail[dest_pos..remaining_in_block].copy_from_slice(&self.core.parallel_blocks[block][pos..remaining_in_block]);
+                    dest_pos += remaining_in_block;
+                    block += 1;
+                }
+
+                
+                pos = (self.index + dest.len() >> 2) & 0x3F;
+                self.index = pos;
             }
 
             #[inline]
