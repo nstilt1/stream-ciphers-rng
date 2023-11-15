@@ -10,7 +10,7 @@
 //! Block RNG based on rand_core::BlockRng
 use core::fmt::Debug;
 
-use cipher::{BlockSizeUser, StreamCipherCore, Unsigned, inout::InOutBuf};
+use cipher::{inout::InOutBuf, BlockSizeUser, StreamCipherCore, Unsigned};
 use rand_core::{impls::fill_via_u32_chunks, CryptoRng, Error, RngCore, SeedableRng};
 
 #[cfg(feature = "serde1")]
@@ -392,7 +392,7 @@ macro_rules! impl_chacha_rng {
                     if self.index != 0 {
                         while remaining_in_block > 0 && block < 4 {
                             dest[dest_pos..remaining_in_block].copy_from_slice(
-                                &self.core.parallel_blocks[block][pos..remaining_in_block]
+                                &self.core.parallel_blocks[block][pos..remaining_in_block],
                             );
                             dest_pos += remaining_in_block;
                             block += 1;
@@ -404,19 +404,21 @@ macro_rules! impl_chacha_rng {
                             return;
                         }
                     }
-                    
+
                     self.core.counter = self.core.counter.wrapping_add(1);
                 }
                 let (filled, mut tail) = dest.split_at(dest_pos);
-                
+
                 // write to all of the full 256-byte chunks by excluding the last 8 bits from the len
                 // for the upper bound index
                 let writable_block_bytes = tail.len() & !(0xFF);
                 let (mut chunks, mut tail) = tail.split_at(writable_block_bytes);
-                
+
                 // this could be one way to write blocks directly into `chunks`
-                self.core.block.apply_keystream_blocks_inout((&mut chunks).into());
-                
+                self.core
+                    .block
+                    .apply_keystream_blocks_inout((&mut chunks).into());
+
                 // this could be another way to write blocks directly into `chunks`
                 self.core.block.write_keystream_blocks((&mut chunks).into());
 
@@ -448,12 +450,13 @@ macro_rules! impl_chacha_rng {
                     // a similar loop that was at the beginning of this file
                     pos = 0;
                     remaining_in_block = Block::block_size().min(tail.len() - dest_pos);
-                    tail[dest_pos..remaining_in_block].copy_from_slice(&self.core.parallel_blocks[block][pos..remaining_in_block]);
+                    tail[dest_pos..remaining_in_block].copy_from_slice(
+                        &self.core.parallel_blocks[block][pos..remaining_in_block],
+                    );
                     dest_pos += remaining_in_block;
                     block += 1;
                 }
 
-                
                 pos = (self.index + dest.len() >> 2) & 0x3F;
                 self.index = pos;
             }
