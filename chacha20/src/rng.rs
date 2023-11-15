@@ -10,10 +10,8 @@
 //! Block RNG based on rand_core::BlockRng
 use core::fmt::Debug;
 
-use cipher::{BlockSizeUser, StreamCipherCore, Unsigned};
+use cipher::{BlockSizeUser, StreamCipherCore, Unsigned, inout::InOutBuf};
 use rand_core::{impls::fill_via_u32_chunks, CryptoRng, Error, RngCore, SeedableRng};
-
-use inout::InOutBuf;
 
 #[cfg(feature = "serde1")]
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
