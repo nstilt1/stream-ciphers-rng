@@ -377,13 +377,14 @@ macro_rules! impl_chacha_rng {
 
             #[inline]
             fn fill_bytes(&mut self, dest: &mut [u8]) {
+                let dest_len = dest.len();
+                let mut dest: InOutBuf<'_, '_, u8> = dest.into();
                 // the position of the index in ParBlocks<Block>, index * 4 bytes per u32 % 64
                 // this is rounded to the nearest u32, which isn't necessarily a bad thing, but it could be more precise
                 let mut pos = (self.index << 2) & (Block::block_size() - 1);
                 // the current ParBlocks index: ParBlocks[block], index / 16 u32s per block
                 let mut block = self.index >> 4;
-                let mut remaining = BlockRngResults::block_size() - (self.index << 2);
-                let mut dest_len = dest.len();
+                let remaining = BlockRngResults::block_size() - (self.index << 2);
 
                 let mut dest_pos = 0;
                 if remaining != 0 {
@@ -391,7 +392,7 @@ macro_rules! impl_chacha_rng {
                     // fills with as many bytes from the currently generated buffer as necessary
                     if self.index != 0 {
                         while remaining_in_block > 0 && block < 4 {
-                            dest[dest_pos..remaining_in_block+dest_pos].copy_from_slice(
+                            dest.get_out()[dest_pos..remaining_in_block+dest_pos].copy_from_slice(
                                 &self.core.parallel_blocks[block][pos..remaining_in_block],
                             );
                             dest_pos += remaining_in_block;
@@ -407,23 +408,24 @@ macro_rules! impl_chacha_rng {
 
                     self.core.counter = self.core.counter.wrapping_add(1);
                 }
-                let (filled, mut tail) = dest.split_at(dest_pos);
+                let (_filled, tail) = dest.split_at(dest_pos);
 
                 // write to all of the full 256-byte chunks by excluding the last 8 bits from the len
                 // for the upper bound index
                 let writable_block_bytes = tail.len() & !(0xFF);
-                let (mut chunks, mut tail) = tail.split_at(writable_block_bytes);
+                //let (mut chunks, mut tail) = tail.split_at(writable_block_bytes);
+
+                let num_blocks = tail.len() >> 8;
+
+                let (chunks, mut tail) = tail.into_chunks();
 
                 // this could be one way to write blocks directly into `chunks`
                 self.core
                     .block
-                    .apply_keystream_blocks_inout((&mut chunks).into());
-
-                // this could be another way to write blocks directly into `chunks`
-                self.core.block.write_keystream_blocks((&mut chunks).into());
+                    .apply_keystream_blocks_inout(chunks);
 
                 // adjust the counter
-                self.core.counter = self.core.counter.wrapping_add((chunks.len() >> 8) as u32);
+                self.core.counter = self.core.counter.wrapping_add(num_blocks as u32);
                 dest_pos = writable_block_bytes;
 
                 // this is another way to write them, one 256-byte chunk at a time, but it no work
@@ -439,25 +441,26 @@ macro_rules! impl_chacha_rng {
                 // fill in the tail and regenerate the internal buffer
                 self.core.generate(&mut self.results);
                 if dest_pos == 0 {
+                    self.index = 0;
                     return;
                 }
                 dest_pos = 0;
 
                 // tail.len() will be less than 256
-                let remaining_in_block: usize;
+                let mut remaining_in_block: usize;
                 block = 0;
                 while dest_pos < tail.len() {
                     // a similar loop that was at the beginning of this file
                     pos = 0;
                     remaining_in_block = Block::block_size().min(tail.len() - dest_pos);
-                    tail[dest_pos..dest_pos+remaining_in_block].copy_from_slice(
+                    tail.get_out()[dest_pos..dest_pos+remaining_in_block].copy_from_slice(
                         &self.core.parallel_blocks[block][pos..remaining_in_block],
                     );
                     dest_pos += remaining_in_block;
                     block += 1;
                 }
 
-                pos = (self.index + dest.len() >> 2) & 0x3F;
+                pos = (self.index + dest_len >> 2) & 0x3F;
                 self.index = pos;
             }
 
