@@ -183,28 +183,15 @@ impl_zeroize_to_le_bytes!(u128, 16, Zeroizing16Bytes);
 pub struct WordPosInput([u8; 5]);
 
 impl From<u64> for WordPosInput {
-    #[cfg(feature = "zeroize")]
-    fn from(mut value: u64) -> Self {
-        let shifted = (value >> 4).zeroize_to_le_bytes();
-        let original = value.zeroize_to_le_bytes();
-        let mut result = [0u8; 5];
-        // copy the "index" byte to Self.0[0]
-        result[4] = original.0[0];
-        // copy the block_pos 32 bits to Self.0[1..5]
-        result[0..4].copy_from_slice(&shifted.0[0..4]);
-        Self(result)
-    }
-    #[cfg(not(feature = "zeroize"))]
     fn from(value: u64) -> Self {
-        let shifted = (value >> 4).to_le_bytes();
+        let shifted = (value >> 6).to_le_bytes();
         let original = value.to_le_bytes();
         let mut result = [0u8; 5];
-        result[4] = original[0];
         result[0..4].copy_from_slice(&shifted[0..4]);
+        result[4] = original[0];
         Self(result)
     }
 }
-impl_zeroize_on_drop!(WordPosInput);
 
 /// A zeroizing wrapper for the `stream_id`. It can be used with a `[u8; 12]` or
 /// a `u128`.
@@ -418,7 +405,8 @@ macro_rules! impl_chacha_rng {
         pub struct $ChaChaXCore {
             block: ChaChaCore<$rounds>,
             parallel_blocks: ParBlocks<Block>,
-            counter: u32,
+            /// debugging field
+            pub counter: u32,
         }
 
         impl SeedableRng for $ChaChaXCore {
@@ -458,30 +446,32 @@ macro_rules! impl_chacha_rng {
         }
 
         impl $ChaChaXRng {
+            /// Debug for block pos
+            pub fn get_block_pos(&self) -> u32 {
+                self.rng.core.block.get_block_pos()
+            }
             // The buffer is a 4-block window, i.e. it is always at a block-aligned position in the
             // stream but if the stream has been sought it may not be self-aligned.
 
             /// Get the offset from the start of the stream, in 32-bit words.
             ///
-            /// Since the generated blocks are 16 words (2<sup>4</sup>) long and the
+            /// Since the generated blocks are 64 words (2<sup>6</sup>) long and the
             /// counter is 32-bits, the offset is a 36-bit number. Sub-word offsets are
             /// not supported, hence the result can simply be multiplied by 4 to get a
             /// byte-offset.
             #[inline]
             pub fn get_word_pos(&self) -> u64 {
-                let buf_start_block = {
-                    let buf_end_block = self.rng.core.block.get_block_pos();
-                    u32::wrapping_sub(buf_end_block, BUF_BLOCKS.into())
-                };
-                let (buf_offset_blocks, block_offset_words) = {
-                    let buf_offset_words = self.rng.index() as u32;
-                    let blocks_part = buf_offset_words / u32::from(BLOCK_WORDS);
-                    let words_part = buf_offset_words % u32::from(BLOCK_WORDS);
-                    (blocks_part, words_part)
-                };
-                let pos_block = u32::wrapping_add(buf_start_block, buf_offset_blocks);
-                let pos_block_words = u64::from(pos_block) * u64::from(BLOCK_WORDS);
-                pos_block_words + u64::from(block_offset_words)
+                // block_pos is a multiple of 4, and offset by 4; therefore, it already has the
+                // last 2 bits set to 0
+                let mut result = u64::from(
+                    self.rng
+                        .core
+                        .block
+                        .get_block_pos()
+                        .wrapping_sub(BUF_BLOCKS.into()),
+                ) << 4;
+                result |= self.rng.index() as u64;
+                result
             }
 
             /// Set the offset from the start of the stream, in 32-bit words. This method
@@ -492,19 +482,27 @@ macro_rules! impl_chacha_rng {
             /// There would be a *minor* performance benefit from using a `[u8; 5]` instead
             /// of a `u64`, as it avoids some copies and extra zeroizing.
             ///
-            /// As with `get_word_pos`, we use a 36-bit number. Since the generator
-            /// simply cycles at the end of its period (256 GiB), we ignore the upper 28
-            /// bits of a `u64`. When given a `[u8; 5]`, we ignore the first 4 bits of the
+            /// As with `get_word_pos`, we use a 38-bit number. Since the generator
+            /// simply cycles at the end of its period (256 GiB), we ignore the upper 26
+            /// bits of a `u64`. When given a `[u8; 5]`, we ignore the first 2 bits of the
             /// last byte.
             #[inline]
             pub fn set_word_pos<W: Into<WordPosInput>>(&mut self, word_offset: W) {
                 let word_offset: WordPosInput = word_offset.into();
+                // when not using `set_word_pos`, the block_pos is always a multiple of 4.
+                // This change follows those conventions, as well as maintaining the 6-bit
+                // index
+                self.rng.core.block.set_block_pos(
+                    u32::from_le_bytes(word_offset.0[0..4].try_into().unwrap()) << 2,
+                );
+                // generate will increase block_pos by 4
                 self.rng
-                    .core
-                    .block
-                    .set_block_pos(u32::from_le_bytes(word_offset.0[0..4].try_into().unwrap()));
-                self.rng
-                    .generate_and_set((word_offset.0[4] & 0x0F) as usize);
+                    .generate_and_set((word_offset.0[4] & 0x3F) as usize);
+            }
+
+            /// Temporary debugging method
+            pub fn get_index(&self) -> usize {
+                self.rng.index()
             }
 
             /// Set the stream number. The lower 96 bits are used and the rest are
