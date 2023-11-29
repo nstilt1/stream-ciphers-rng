@@ -13,7 +13,7 @@ const N: usize = PAR_BLOCKS / 2;
 
 #[inline]
 #[target_feature(enable = "avx2")]
-pub(crate) unsafe fn inner<R, V>(core: &mut ChaChaCore<R, V>, buffer: *mut u8)
+pub(crate) unsafe fn inner<R, V>(core: &mut ChaChaCore<R, V>, buffer: *mut u32)
 where
     R: Rounds,
     V: Variant
@@ -51,7 +51,7 @@ struct Backend<R: Rounds> {
 
 impl<R: Rounds> Backend<R> {
     #[inline(always)]
-    fn gen_par_ks_blocks(&mut self, blocks: *mut u8) {
+    fn gen_par_ks_blocks(&mut self, blocks: *mut u32) {
         unsafe {
             let vs = rounds::<R>(&self.v, &self.ctr);
 

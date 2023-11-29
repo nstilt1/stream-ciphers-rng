@@ -8,7 +8,7 @@ use core::{arch::aarch64::*, marker::PhantomData};
 
 #[inline]
 #[target_feature(enable = "neon")]
-pub(crate) unsafe fn inner<R, V>(core: &mut ChaChaCore<R, V>, buffer: *mut u8)
+pub(crate) unsafe fn inner<R, V>(core: &mut ChaChaCore<R, V>, buffer: *mut u32)
 where
     R: R,
     V: Variant
@@ -45,7 +45,7 @@ macro_rules! add64 {
 
 impl<R: Rounds> Backend<R> {
     #[inline(always)]
-    fn gen_par_ks_blocks(&mut self, blocks: &mut [u32; 64]) {
+    fn gen_par_ks_blocks(&mut self, blocks: *mut u32) {
         macro_rules! rotate_left {
             ($v:ident, 8) => {{
                 let maskb = [3u8, 0, 1, 2, 7, 4, 5, 6, 11, 8, 9, 10, 15, 12, 13, 14];

@@ -277,7 +277,7 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
 
     /// Generates 4 blocks in parallel with avx2 & neon, but merely fills 
     /// 4 blocks with sse2 & soft
-    fn generate(&mut self, buffer: *mut u8) {
+    fn generate(&mut self, buffer: *mut u32) {
         cfg_if! {
             if #[cfg(chacha20_force_soft)] {
                 backends::soft::Backend(self).gen_ks_blocks(buffer);

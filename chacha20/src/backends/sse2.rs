@@ -8,7 +8,7 @@ use core::arch::x86_64::*;
 
 #[inline]
 #[target_feature(enable = "sse2")]
-pub(crate) unsafe fn inner<R, V>(core: &mut ChaChaCore<R, V>, buffer: *mut u8)
+pub(crate) unsafe fn inner<R, V>(core: &mut ChaChaCore<R, V>, mut buffer: *mut u32)
 where
     R: Rounds,
     V: Variant
@@ -24,10 +24,9 @@ where
         _pd: PhantomData,
     };
 
-    let mut buffer_ptr = buffer as *mut u32;
     for _i in 0..4 {
-        backend.gen_ks_block(buffer_ptr);
-        buffer_ptr = buffer_ptr.add(16);
+        backend.gen_ks_block(buffer);
+        buffer = buffer.add(16);
     }
 
     core.state[12] = _mm_cvtsi128_si32(backend.v[3]) as u32;
