@@ -6,8 +6,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![cfg_attr(not(test), forbid(unsafe_code))]
-//! Block RNG based on rand_core::BlockRng
+// This was commented out due to using pointers
+//#![cfg_attr(not(test), forbid(unsafe_code))]
+
 use core::fmt::Debug;
 
 use rand_core::{impls::fill_via_u32_chunks, CryptoRng, Error, RngCore, SeedableRng};
@@ -312,19 +313,67 @@ macro_rules! impl_chacha_rng {
 
             #[inline]
             fn fill_bytes(&mut self, dest: &mut [u8]) {
-                let mut read_len = 0;
-                while read_len < dest.len() {
+                let dest_len = dest.len();
+                
+                // the position of the index in ParBlocks<Block>, index * 4 bytes per u32 % 64
+                // this is rounded to the nearest u32, which isn't necessarily a bad thing, but it could be more precise
+                let mut pos = (self.index << 2) & 0xFF;
+                // the current ParBlocks index: ParBlocks[block], index / 16 u32s per block
+                let mut block = self.index >> 4;
+                let remaining = (256 - (self.index << 2)).min(dest_len);
+
+                let mut dest_pos = 0;
+                if remaining != 0 {
+                    // fills with as many bytes from the currently generated buffer as necessary
                     if self.index >= self.buffer.as_ref().len() {
-                        self.generate_and_set(0);
+                        self.core.generate(self.buffer.0.as_mut_ptr() as *mut u8);
                     }
+
+                    assert!(self.buffer.0 == BlockRngResults::default().0, "Buffer was empty");
                     let (consumed_u32, filled_u8) = fill_via_u32_chunks(
                         &self.buffer.as_ref()[self.index..],
-                        &mut dest[read_len..],
+                        &mut dest[0..remaining]
                     );
-
                     self.index += consumed_u32;
-                    read_len += filled_u8;
+                    dest_pos += filled_u8;
+
+                    if dest_len == dest_pos {
+                        return;
+                    }
                 }
+
+                // write to all of the full 256-byte chunks by excluding the last 8 bits from the len
+                // for the upper bound index
+                let writable_block_bytes = (dest_len - dest_pos) & !(0xFF);
+                //let (mut chunks, mut tail) = tail.split_at(writable_block_bytes);
+
+                let num_blocks = writable_block_bytes >> 8;
+
+                unsafe {
+                    let mut block_ptr = dest.as_mut_ptr();
+                    block_ptr = block_ptr.add(dest_pos);
+                    for _i in 0..num_blocks {
+                        self.core.generate(block_ptr);
+                        block_ptr = block_ptr.add(256);
+                    }
+                }
+
+                dest_pos += writable_block_bytes;
+
+                // refill buffer before terminating or filling the last chunk
+                self.core.generate(self.buffer.0.as_mut_ptr() as *mut u8);
+
+                if dest_pos == dest_len {
+                    self.index = 0;
+                    return;
+                }
+
+                let (consumed_u32, _filled_u8) = fill_via_u32_chunks(
+                    &self.buffer.as_ref()[self.index..],
+                    &mut dest[dest_pos..]
+                );
+                self.index = consumed_u32;
+                return;
             }
 
             #[inline]
@@ -359,7 +408,7 @@ macro_rules! impl_chacha_rng {
             #[inline]
             pub fn generate_and_set(&mut self, index: usize) {
                 assert!(index < self.buffer.as_ref().len());
-                self.core.generate(&mut self.buffer.0);
+                self.core.generate(self.buffer.0.as_mut_ptr() as *mut u8);
                 self.index = index;
             }
             // The buffer is a 4-block window, i.e. it is always at a block-aligned position in the

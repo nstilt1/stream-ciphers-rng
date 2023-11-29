@@ -13,11 +13,12 @@ const N: usize = PAR_BLOCKS / 2;
 
 #[inline]
 #[target_feature(enable = "avx2")]
-pub(crate) unsafe fn inner<R, V>(core: &mut ChaChaCore<R, V>, buffer: &mut [u32; 64])
+pub(crate) unsafe fn inner<R, V>(core: &mut ChaChaCore<R, V>, buffer: *mut u8)
 where
     R: Rounds,
     V: Variant
 {
+    assert!(!buffer.is_null(), "Buffer pointer must not be null");
     let state_ptr = core.state.as_ptr() as *const __m128i;
     let v = [
         _mm256_broadcastsi128_si256(_mm_loadu_si128(state_ptr.add(0))),
@@ -50,7 +51,7 @@ struct Backend<R: Rounds> {
 
 impl<R: Rounds> Backend<R> {
     #[inline(always)]
-    fn gen_par_ks_blocks(&mut self, blocks: &mut [u32; 64]) {
+    fn gen_par_ks_blocks(&mut self, blocks: *mut u8) {
         unsafe {
             let vs = rounds::<R>(&self.v, &self.ctr);
 
@@ -59,7 +60,7 @@ impl<R: Rounds> Backend<R> {
                 *c = _mm256_add_epi32(*c, _mm256_set_epi32(0, 0, 0, pb, 0, 0, 0, pb));
             }
 
-            let mut block_ptr = blocks.as_mut_ptr() as *mut __m128i;
+            let mut block_ptr = blocks as *mut __m128i;
             for v in vs {
                 let t: [__m128i; 8] = core::mem::transmute(v);
                 for i in 0..4 {

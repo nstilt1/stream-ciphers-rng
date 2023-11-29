@@ -8,11 +8,12 @@ use core::{arch::aarch64::*, marker::PhantomData};
 
 #[inline]
 #[target_feature(enable = "neon")]
-pub(crate) unsafe fn inner<R, V>(core: &mut ChaChaCore<R, V>, buffer: &mut [u32; 64])
+pub(crate) unsafe fn inner<R, V>(core: &mut ChaChaCore<R, V>, buffer: *mut u8)
 where
     R: R,
     V: Variant
 {
+    assert!(!buffer.is_null(), "Pointer must not be null");
     let mut backend = Backend::<R> {
         state: [
             vld1q_u32(core.state.as_ptr().offset(0)),
