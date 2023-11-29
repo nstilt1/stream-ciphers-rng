@@ -325,14 +325,13 @@ macro_rules! impl_chacha_rng {
                 let mut dest_pos = 0;
                 if remaining != 0 {
                     // fills with as many bytes from the currently generated buffer as necessary
-                    if self.index >= self.buffer.as_ref().len() {
-                        self.core.generate(self.buffer.0.as_mut_ptr() as *mut u8);
+                    if self.index >= BlockRngResults::LEN {
+                        self.generate_and_set(0);
                     }
 
-                    assert!(self.buffer.0 == BlockRngResults::default().0, "Buffer was empty");
                     let (consumed_u32, filled_u8) = fill_via_u32_chunks(
                         &self.buffer.as_ref()[self.index..],
-                        &mut dest[0..remaining]
+                        &mut dest[0..]
                     );
                     self.index += consumed_u32;
                     dest_pos += filled_u8;
@@ -362,9 +361,9 @@ macro_rules! impl_chacha_rng {
 
                 // refill buffer before terminating or filling the last chunk
                 self.core.generate(self.buffer.0.as_mut_ptr() as *mut u8);
+                self.index = 0;
 
                 if dest_pos == dest_len {
-                    self.index = 0;
                     return;
                 }
 
