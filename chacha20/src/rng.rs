@@ -314,12 +314,6 @@ macro_rules! impl_chacha_rng {
             #[inline]
             fn fill_bytes(&mut self, dest: &mut [u8]) {
                 let dest_len = dest.len();
-                
-                // the position of the index in ParBlocks<Block>, index * 4 bytes per u32 % 64
-                // this is rounded to the nearest u32, which isn't necessarily a bad thing, but it could be more precise
-                let mut pos = (self.index << 2) & 0xFF;
-                // the current ParBlocks index: ParBlocks[block], index / 16 u32s per block
-                let mut block = self.index >> 4;
                 let remaining = (256 - (self.index << 2)).min(dest_len);
 
                 let mut dest_pos = 0;
