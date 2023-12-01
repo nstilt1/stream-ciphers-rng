@@ -1057,6 +1057,50 @@ mod tests {
         assert_eq!(rng.get_word_pos(), 0);
     }
 
+    #[test]
+    /// The hash values from this are from a previous working version of the RNG
+    fn test_fill_bytes_hashes() {
+        use sha2::{Sha256, Sha512, Digest};
+        use sha3::{Sha3_256, Sha3_512};
+        use hex_literal::hex;
+        
+        let mut rng = ChaCha20Rng::from_seed([0u8; 32]);
+        let mut samples = [0u8; 4192];
+        rng.fill_bytes(&mut samples[0..3]);
+        rng.fill_bytes(&mut samples[3..15]);
+        rng.fill_bytes(&mut samples[15..907]);
+        rng.fill_bytes(&mut samples[907..938]);
+        rng.fill_bytes(&mut samples[938..1735]);
+        rng.fill_bytes(&mut samples[1735..1800]);
+        rng.fill_bytes(&mut samples[1800..2204]);
+        rng.fill_bytes(&mut samples[2204..2222]);
+        rng.fill_bytes(&mut samples[2222..2500]);
+        rng.fill_bytes(&mut samples[2500..2525]);
+        rng.fill_bytes(&mut samples[2525..3001]);
+        rng.fill_bytes(&mut samples[3001..3800]);
+        rng.fill_bytes(&mut samples[3800..4192]);
+
+        let mut hasher = Sha256::new();
+        hasher.update(samples);
+        let sha256 = hasher.finalize();
+        assert_eq!(sha256, hex!("ded7b3a2b6a1cce08021a7130fee540ee44271af307b296b67c712c3543c3d66").into());
+        let mut hasher = Sha512::new();
+        hasher.update(samples);
+        let sha512 = hasher.finalize();
+        assert_eq!(sha512, hex!("378c5ccb5f7239635a5a2470168a7c9d9ed03780d83e52ec046429fb0061ea202f2f603fa51c8f33f73fbf889fc666394ab33963a640d658e18fd32041d86ed6").into());
+
+        let mut hasher = Sha3_256::new();
+        hasher.update(samples);
+        let sha3_256 = hasher.finalize();
+        assert_eq!(sha3_256, hex!("8c7a9aeb2f5a5c2b2f9a045acd6ca9961b466be6a4d6939c76a6edb714ded194").into());
+
+        // testing
+        let mut hasher = Sha3_512::new();
+        hasher.update(samples);
+        let sha3_512 = hasher.finalize();
+        assert_eq!(sha3_512, hex!("299604773b3aa69c28376677c7fb8a242d6fda6083f8ecabbb637a0bbf500f6a45006b1705b08d2a268a02319f97a8bc257600fb29bd7029fb5116039b4809fb").into());
+    }
+
     // #[test]
     // fn test_trait_objects() {
     //     use rand_core::CryptoRng;
