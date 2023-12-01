@@ -52,7 +52,7 @@ fn bench(c: &mut Criterion) {
 
 use chacha20::rand_core::{RngCore, SeedableRng};
 
-#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+#[cfg(any(target_arch = "x86_64", target_arch = "x86", all(target_arch = "aarch64", target_os = "Linux")))]
 fn bench_chacha20rng(c: &mut Criterion<CyclesPerByte>) {
     // by using the same group twice, it should allow us to see a direct comparison
     // of both implementations
@@ -77,7 +77,7 @@ fn bench_chacha20rng(c: &mut Criterion<CyclesPerByte>) {
     chacha_x86.finish();
 }
 
-#[cfg(not(any(target_arch = "x86_64", target_arch = "x86")))]
+#[cfg(not(any(target_arch = "x86_64", target_arch = "x86", all(target_arch = "aarch64", target_os = "Linux"))))]
 fn bench_chacha20rng(c: &mut Criterion) {
     // by using the same group twice, it should allow us to see a direct comparison
     // of both implementations

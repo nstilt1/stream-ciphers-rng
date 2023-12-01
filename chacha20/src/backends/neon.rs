@@ -3,14 +3,14 @@
 //! Adapted from the Crypto++ `chacha_simd` implementation by Jack Lloyd and
 //! Jeffrey Walton (public domain).
 
-use crate::{Block, Rounds, STATE_WORDS, Variant};
+use crate::{Rounds, Variant, ChaChaCore};
 use core::{arch::aarch64::*, marker::PhantomData};
 
 #[inline]
 #[target_feature(enable = "neon")]
-pub(crate) unsafe fn inner<R, V>(core: &mut ChaChaCore<R, V>, buffer: *mut u32)
+pub(crate) unsafe fn inner<R, V>(core: &mut ChaChaCore<R, V>, buffer: *mut u8)
 where
-    R: R,
+    R: Rounds,
     V: Variant
 {
     assert!(!buffer.is_null(), "Pointer must not be null");
@@ -26,10 +26,10 @@ where
 
     backend.gen_par_ks_blocks(buffer);
 
-    vst1q_u32(state.as_mut_ptr().offset(12), backend.state[3]);
+    vst1q_u32(core.state.as_mut_ptr().offset(12), backend.state[3]);
 }
 
-struct Backend<R: Unsigned> {
+struct Backend<R: Rounds> {
     state: [uint32x4_t; 4],
     _pd: PhantomData<R>,
 }
@@ -45,7 +45,7 @@ macro_rules! add64 {
 
 impl<R: Rounds> Backend<R> {
     #[inline(always)]
-    fn gen_par_ks_blocks(&mut self, blocks: *mut u32) {
+    fn gen_par_ks_blocks(&mut self, mut blocks: *mut u8) {
         macro_rules! rotate_left {
             ($v:ident, 8) => {{
                 let maskb = [3u8, 0, 1, 2, 7, 4, 5, 6, 11, 8, 9, 10, 15, 12, 13, 14];
@@ -95,7 +95,7 @@ impl<R: Rounds> Backend<R> {
             let mut r3_2 = self.state[2];
             let mut r3_3 = add64!(r0_3, ctrs[2]);
 
-            for _ in 0..R::USIZE {
+            for _ in 0..R::COUNT {
                 r0_0 = vaddq_u32(r0_0, r0_1);
                 r1_0 = vaddq_u32(r1_0, r1_1);
                 r2_0 = vaddq_u32(r2_0, r2_1);
@@ -272,59 +272,62 @@ impl<R: Rounds> Backend<R> {
             r3_3 = vaddq_u32(r3_3, self.state[3]);
             r3_3 = add64!(r3_3, ctrs[2]);
 
-            vst1q_u8(blocks[0].as_mut_ptr().offset(0), vreinterpretq_u8_u32(r0_0));
+            vst1q_u8(blocks.offset(0), vreinterpretq_u8_u32(r0_0));
             vst1q_u8(
-                blocks[0].as_mut_ptr().offset(16),
+                blocks.offset(16),
                 vreinterpretq_u8_u32(r0_1),
             );
             vst1q_u8(
-                blocks[0].as_mut_ptr().offset(2 * 16),
+                blocks.offset(2 * 16),
                 vreinterpretq_u8_u32(r0_2),
             );
             vst1q_u8(
-                blocks[0].as_mut_ptr().offset(3 * 16),
+                blocks.offset(3 * 16),
                 vreinterpretq_u8_u32(r0_3),
             );
 
-            vst1q_u8(blocks[1].as_mut_ptr().offset(0), vreinterpretq_u8_u32(r1_0));
+            blocks = blocks.add(64);
+            vst1q_u8(blocks.offset(0), vreinterpretq_u8_u32(r1_0));
             vst1q_u8(
-                blocks[1].as_mut_ptr().offset(16),
+                blocks.offset(16),
                 vreinterpretq_u8_u32(r1_1),
             );
             vst1q_u8(
-                blocks[1].as_mut_ptr().offset(2 * 16),
+                blocks.offset(2 * 16),
                 vreinterpretq_u8_u32(r1_2),
             );
             vst1q_u8(
-                blocks[1].as_mut_ptr().offset(3 * 16),
+                blocks.offset(3 * 16),
                 vreinterpretq_u8_u32(r1_3),
             );
 
-            vst1q_u8(blocks[2].as_mut_ptr().offset(0), vreinterpretq_u8_u32(r2_0));
+            blocks = blocks.add(64);
+            vst1q_u8(blocks.offset(0), vreinterpretq_u8_u32(r2_0));
             vst1q_u8(
-                blocks[2].as_mut_ptr().offset(16),
+                blocks.offset(16),
                 vreinterpretq_u8_u32(r2_1),
             );
             vst1q_u8(
-                blocks[2].as_mut_ptr().offset(2 * 16),
+                blocks.offset(2 * 16),
                 vreinterpretq_u8_u32(r2_2),
             );
             vst1q_u8(
-                blocks[2].as_mut_ptr().offset(3 * 16),
+                blocks.offset(3 * 16),
                 vreinterpretq_u8_u32(r2_3),
             );
 
-            vst1q_u8(blocks[3].as_mut_ptr().offset(0), vreinterpretq_u8_u32(r3_0));
+            blocks = blocks.add(64);
+            vst1q_u8(blocks.offset(0), vreinterpretq_u8_u32(r3_0));
             vst1q_u8(
-                blocks[3].as_mut_ptr().offset(16),
+                blocks.offset(16),
                 vreinterpretq_u8_u32(r3_1),
             );
             vst1q_u8(
-                blocks[3].as_mut_ptr().offset(2 * 16),
+                blocks.offset(2 * 16),
                 vreinterpretq_u8_u32(r3_2),
             );
             vst1q_u8(
-                blocks[3].as_mut_ptr().offset(3 * 16),
+                blocks.offset(3 * 16),
                 vreinterpretq_u8_u32(r3_3),
             );
 
