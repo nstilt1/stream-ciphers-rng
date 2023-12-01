@@ -346,7 +346,7 @@ macro_rules! impl_chacha_rng {
                     let mut block_ptr = dest.as_mut_ptr();
                     block_ptr = block_ptr.add(dest_pos);
                     for _i in 0..num_blocks {
-                        self.core.generate(block_ptr as *mut u32);
+                        self.core.generate(block_ptr);
                         block_ptr = block_ptr.add(256);
                     }
                 }
@@ -354,7 +354,7 @@ macro_rules! impl_chacha_rng {
                 dest_pos += writable_block_bytes;
 
                 // refill buffer before terminating or filling the last chunk
-                self.core.generate(self.buffer.0.as_mut_ptr());
+                self.core.generate(self.buffer.0.as_mut_ptr() as *mut u8);
                 self.index = 0;
 
                 if dest_pos == dest_len {
@@ -401,7 +401,7 @@ macro_rules! impl_chacha_rng {
             #[inline]
             pub fn generate_and_set(&mut self, index: usize) {
                 assert!(index < self.buffer.as_ref().len());
-                self.core.generate(self.buffer.0.as_mut_ptr());
+                self.core.generate(self.buffer.0.as_mut_ptr() as *mut u8);
                 self.index = index;
             }
             // The buffer is a 4-block window, i.e. it is always at a block-aligned position in the

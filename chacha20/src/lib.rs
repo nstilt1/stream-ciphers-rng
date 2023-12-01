@@ -277,7 +277,7 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
 
     /// Generates 4 blocks in parallel with avx2 & neon, but merely fills 
     /// 4 blocks with sse2 & soft, writing them to the pointer's address.
-    fn generate(&mut self, dest_ptr: *mut u32) {
+    fn generate(&mut self, dest_ptr: *mut u8) {
         assert!(!dest_ptr.is_null());
         cfg_if! {
             if #[cfg(chacha20_force_soft)] {
