@@ -12,9 +12,6 @@ use cipher::{
 };
 use crate::{ChaChaCore, Variant, R20};
 
-#[cfg(feature = "zeroize")]
-use zeroize::ZeroizeOnDrop;
-
 /// Nonce type used by [`ChaCha20Legacy`].
 pub type LegacyNonce = GenericArray<u8, U8>;
 
@@ -69,31 +66,3 @@ impl ChaCha20LegacyCore {
         self.block.state[12] = pos
     }
 }
-
-impl StreamCipher for ChaCha20LegacyCore {
-    fn try_apply_keystream_inout(
-        &mut self,
-        buf: InOutBuf<'_, '_, u8>,
-    ) -> Result<(), StreamCipherError> {
-        Ok(())
-    }
-}
-
-impl StreamCipherSeek for ChaCha20LegacyCore {
-    fn current_pos<T: SeekNum>(&self) -> T {
-        unimplemented!()
-    }
-    fn seek<T: SeekNum>(&mut self, pos: T) {
-        
-    }
-    fn try_current_pos<T: SeekNum>(&self) -> Result<T, OverflowError> {
-        unimplemented!()
-    }
-    fn try_seek<T: SeekNum>(&mut self, pos: T) -> Result<(), StreamCipherError> {
-        Ok(())
-    }
-}
-
-#[cfg(feature = "zeroize")]
-#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
-impl ZeroizeOnDrop for ChaCha20LegacyCore {}

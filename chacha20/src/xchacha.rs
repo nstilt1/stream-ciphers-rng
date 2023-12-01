@@ -12,9 +12,6 @@ use crate::{ChaChaCore, Variant, STATE_WORDS, CONSTANTS, Rounds, R20, R12, R8};
 /// Key type used by all ChaCha variants.
 pub type Key = GenericArray<u8, U32>;
 
-#[cfg(feature = "zeroize")]
-use zeroize::ZeroizeOnDrop;
-
 /// Nonce type used by XChaCha variants.
 pub type XNonce = GenericArray<u8, U24>;
 
@@ -111,9 +108,6 @@ impl<R: Rounds> StreamCipher for XChaChaCore<R> {
     }
 }
 
-#[cfg(feature = "zeroize")]
-#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
-impl<R: Rounds> ZeroizeOnDrop for XChaChaCore<R> {}
 
 /// The HChaCha function: adapts the ChaCha core function in the same
 /// manner that HSalsa adapts the Salsa function.
