@@ -7,17 +7,18 @@ pub(crate) struct Backend<'a, R: Rounds, V: Variant>(pub(crate) &'a mut ChaChaCo
 
 impl<'a, R: Rounds, V: Variant> Backend<'a, R, V> {
     #[inline(always)]
-    pub(crate) fn gen_ks_blocks(&mut self, mut buffer: *mut u8) {
+    pub(crate) fn gen_ks_blocks(&mut self, mut dest_ptr: *mut u8) {
         unsafe {
-            for i in 0..4 {
+            for _i in 0..4 {
                 let res = run_rounds::<R>(&self.0.state);
                 self.0.state[12] = self.0.state[12].wrapping_add(1);
 
-                let mut buffer_ptr = buffer as *mut u32;
+                let mut block_ptr = dest_ptr as *mut u32;
                 for val in res.iter() {
-                    buffer_ptr.write_unaligned(*val);
-                    buffer_ptr = buffer_ptr.add(1);
+                    block_ptr.write_unaligned(*val);
+                    block_ptr = block_ptr.add(1);
                 }
+                dest_ptr = dest_ptr.add(64);
             }
         }
     }
