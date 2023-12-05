@@ -1,4 +1,4 @@
-use crate::{ChaChaCore, Rounds, Variant};
+use crate::{ChaChaCore, Rounds, Variant, STATE_WORDS};
 use core::marker::PhantomData;
 
 #[cfg(target_arch = "x86")]
@@ -6,9 +6,75 @@ use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 
+#[cfg(feature = "cipher")]
+use cipher::{
+    StreamClosure, BlockSizeUser, ParBlocksSizeUser, StreamBackend,
+    consts::{U1, U64}
+};
+#[cfg(feature = "cipher")]
+use crate::chacha::Block;
+
+struct Backend<R: Rounds> {
+    v: [__m128i; 4],
+    _pd: PhantomData<R>,
+}
+
+impl<R: Rounds> BlockSizeUser for Backend<R> {
+    type BlockSize = U64;
+}
+
+impl<R: Rounds> ParBlocksSizeUser for Backend<R> {
+    type ParBlocksSize = U1;
+}
+
 #[inline]
+#[cfg(feature = "cipher")]
 #[target_feature(enable = "sse2")]
-pub(crate) unsafe fn inner<R, V>(core: &mut ChaChaCore<R, V>, mut buffer: *mut u8)
+pub(crate) unsafe fn inner<R, F>(state: &mut [u32; STATE_WORDS], f: F)
+where
+    R: Rounds,
+    F: StreamClosure<BlockSize = U64>,
+{
+    let state_ptr = state.as_ptr() as *const __m128i;
+    let mut backend = Backend::<R> {
+        v: [
+            _mm_loadu_si128(state_ptr.add(0)),
+            _mm_loadu_si128(state_ptr.add(1)),
+            _mm_loadu_si128(state_ptr.add(2)),
+            _mm_loadu_si128(state_ptr.add(3)),
+        ],
+        _pd: PhantomData,
+    };
+
+    f.call(&mut backend);
+
+    state[12] = _mm_cvtsi128_si32(backend.v[3]) as u32;
+}
+
+#[cfg(feature = "cipher")]
+impl<R: Rounds> StreamBackend for Backend<R> {
+    #[inline(always)]
+    fn gen_ks_block(&mut self, block: &mut Block) {
+        unsafe {
+            let res = rounds::<R>(&self.v);
+            self.v[3] = _mm_add_epi32(self.v[3], _mm_set_epi32(0, 0, 0, 1));
+
+            let block_ptr = block.as_mut_ptr() as *mut __m128i;
+            for i in 0..4 {
+                _mm_storeu_si128(block_ptr.add(i), res[i]);
+            }
+        }
+    }
+}
+
+#[inline]
+#[cfg(feature = "rand_core")]
+#[target_feature(enable = "sse2")]
+/// This function is essentially the same as `inner`, except it uses a pointer 
+/// and it only calls the par_blocks method, which is also essentially the same 
+/// as the other gen_ks_block method besides that it is called in a loop to fill 
+/// a 256-byte dest
+pub(crate) unsafe fn rng_inner<R, V>(core: &mut ChaChaCore<R, V>, mut buffer: *mut u8)
 where
     R: Rounds,
     V: Variant
@@ -25,21 +91,18 @@ where
     };
 
     for _i in 0..4 {
-        backend.gen_ks_block(buffer);
+        backend.rng_gen_ks_block(buffer);
         buffer = buffer.add(64);
     }
 
     core.state[12] = _mm_cvtsi128_si32(backend.v[3]) as u32;
 }
 
-struct Backend<R: Rounds> {
-    v: [__m128i; 4],
-    _pd: PhantomData<R>,
-}
-
+#[cfg(feature = "rand_core")]
 impl<R: Rounds> Backend<R> {
     #[inline(always)]
-    fn gen_ks_block(&mut self, block: *mut u8) {
+    /// T
+    fn rng_gen_ks_block(&mut self, block: *mut u8) {
         unsafe {
             let res = rounds::<R>(&self.v);
             self.v[3] = _mm_add_epi32(self.v[3], _mm_set_epi32(0, 0, 0, 1));

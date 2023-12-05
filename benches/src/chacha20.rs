@@ -4,6 +4,7 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Through
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 use criterion_cycles_per_byte::CyclesPerByte;
 
+//use previous_chacha20::{
 use chacha20::{
     cipher::{KeyIvInit, StreamCipher},
     ChaCha20,
