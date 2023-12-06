@@ -410,14 +410,11 @@ macro_rules! impl_chacha_rng {
             #[inline]
             pub fn get_word_pos(&self) -> u64 {
                 let mut result = u64::from(
-                    self.core
-                        .block
-                        .get_block_pos()
-                        .wrapping_sub(BUF_BLOCKS.into()),
+                    self.core.state[12].wrapping_sub(BUF_BLOCKS.into()),
                 ) << 4;
               
                 result += self.index as u64;
-                // eliminate bits above and including the 36th bit
+                // eliminate bits above the 36th bit
                 result & 0xfffffffff
             }
 
@@ -436,9 +433,7 @@ macro_rules! impl_chacha_rng {
             #[inline]
             pub fn set_word_pos<W: Into<WordPosInput>>(&mut self, word_offset: W) {
                 let word_offset: WordPosInput = word_offset.into();
-                self.core
-                    .block
-                    .set_block_pos(u32::from_le_bytes(word_offset.0[0..4].try_into().unwrap()));
+                self.core.state[12] = u32::from_le_bytes(word_offset.0[0..4].try_into().unwrap());
 
                 // generate will increase block_pos by 4
                 self.generate_and_set((word_offset.0[4] & 0x0F) as usize);
