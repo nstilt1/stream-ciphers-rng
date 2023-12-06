@@ -44,7 +44,7 @@ impl Variant for IETF {
         vals[0]
     }
     fn from_block_counter(val: Self::Counter) -> Self::CounterVals {
-        return [val];
+        [val]
     }
     fn remaining_blocks(block_pos: Self::Counter) -> Self::Counter {
         u32::MAX - block_pos
