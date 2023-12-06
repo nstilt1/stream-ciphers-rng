@@ -409,10 +409,9 @@ macro_rules! impl_chacha_rng {
             /// byte-offset.
             #[inline]
             pub fn get_word_pos(&self) -> u64 {
-                let mut result = u64::from(
-                    self.core.state[12].wrapping_sub(BUF_BLOCKS.into()),
-                ) << 4;
-              
+                let mut result =
+                    u64::from(self.core.state[12].wrapping_sub(BUF_BLOCKS.into())) << 4;
+
                 result += self.index as u64;
                 // eliminate bits above the 36th bit
                 result & 0xfffffffff
