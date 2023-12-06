@@ -18,11 +18,11 @@ struct Backend<R: Rounds> {
     v: [__m128i; 4],
     _pd: PhantomData<R>,
 }
-
+#[cfg(feature = "cipher")]
 impl<R: Rounds> BlockSizeUser for Backend<R> {
     type BlockSize = U64;
 }
-
+#[cfg(feature = "cipher")]
 impl<R: Rounds> ParBlocksSizeUser for Backend<R> {
     type ParBlocksSize = U1;
 }
