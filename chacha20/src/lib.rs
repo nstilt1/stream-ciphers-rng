@@ -297,10 +297,10 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
                 }
             } else if #[cfg(all(chacha20_force_neon, target_arch = "aarch64", target_feature = "neon"))] {
                 unsafe {
-                    backends::neon::inner::<R, V>(self, dest_ptr);
+                    backends::neon::rng_inner::<R, V>(self, dest_ptr);
                 }
             } else {
-                backends::soft::Backend(self).gen_ks_blocks(dest_ptr);
+                backends::soft::Backend(self).rng_gen_ks_blocks(dest_ptr);
             }
         }
     }

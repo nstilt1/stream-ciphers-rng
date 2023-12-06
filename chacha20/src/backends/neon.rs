@@ -3,7 +3,7 @@
 //! Adapted from the Crypto++ `chacha_simd` implementation by Jack Lloyd and
 //! Jeffrey Walton (public domain).
 
-use crate::{ChaChaCore, Rounds, Variant};
+use crate::{ChaChaCore, Rounds, Variant, STATE_WORDS};
 use core::{arch::aarch64::*, marker::PhantomData};
 
 #[cfg(feature = "cipher")]
@@ -48,6 +48,15 @@ where
     f.call(&mut backend);
 
     vst1q_u32(state.as_mut_ptr().offset(12), backend.state[3]);
+}
+
+macro_rules! add64 {
+    ($a:expr, $b:expr) => {
+        vreinterpretq_u32_u64(vaddq_u64(
+            vreinterpretq_u64_u32($a),
+            vreinterpretq_u64_u32($b),
+        ))
+    };
 }
 
 #[cfg(feature = "cipher")]
@@ -114,7 +123,7 @@ impl<R: Rounds> StreamBackend for Backend<R> {
             let mut r3_2 = self.state[2];
             let mut r3_3 = add64!(r0_3, ctrs[2]);
 
-            for _ in 0..R::USIZE {
+            for _ in 0..R::COUNT {
                 r0_0 = vaddq_u32(r0_0, r0_1);
                 r1_0 = vaddq_u32(r1_0, r1_1);
                 r2_0 = vaddq_u32(r2_0, r2_1);
@@ -376,15 +385,6 @@ where
     backend.rng_gen_par_ks_blocks(dest);
 
     vst1q_u32(core.state.as_mut_ptr().offset(12), backend.state[3]);
-}
-
-macro_rules! add64 {
-    ($a:expr, $b:expr) => {
-        vreinterpretq_u32_u64(vaddq_u64(
-            vreinterpretq_u64_u32($a),
-            vreinterpretq_u64_u32($b),
-        ))
-    };
 }
 
 #[cfg(feature = "rand_core")]
