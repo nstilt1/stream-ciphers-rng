@@ -109,7 +109,10 @@
 #![allow(clippy::needless_range_loop)]
 #![warn(missing_docs, rust_2018_idioms, trivial_casts, unused_qualifications)]
 
+#[cfg(feature = "cipher")]
 pub use cipher;
+#[cfg(feature = "cipher")]
+use cipher::{consts::U64, BlockSizeUser, StreamCipherCore, StreamCipherSeekCore};
 
 use cfg_if::cfg_if;
 use core::marker::PhantomData;
@@ -127,17 +130,20 @@ mod rng;
 #[cfg(feature = "xchacha")]
 mod xchacha;
 
+mod variants;
+use variants::{Variant, IETF};
+
 #[cfg(feature = "cipher")]
-pub use chacha::{ChaCha8, ChaCha12, ChaCha20, KeyIvInit};
+pub use chacha::{ChaCha12, ChaCha20, ChaCha8, Key, KeyIvInit};
 #[cfg(feature = "rand_core")]
 pub use rand_core;
 #[cfg(feature = "rand_core")]
 pub use rng::{ChaCha12Core, ChaCha12Rng, ChaCha20Core, ChaCha20Rng, ChaCha8Core, ChaCha8Rng};
 
 #[cfg(feature = "legacy")]
-pub use legacy::{ChaCha20Legacy, ChaCha20LegacyCore, LegacyNonce};
+pub use legacy::{ChaCha20Legacy, LegacyNonce};
 #[cfg(feature = "xchacha")]
-pub use xchacha::{hchacha, XChaCha12, XChaCha20, XChaCha8, XChaChaCore, XNonce};
+pub use xchacha::{hchacha, XChaCha12, XChaCha20, XChaCha8, XNonce};
 
 /// State initialization constant ("expand 32-byte k")
 const CONSTANTS: [u32; 4] = [0x6170_7865, 0x3320_646e, 0x7962_2d32, 0x6b20_6574];
@@ -201,28 +207,9 @@ cfg_if! {
     }
 }
 
-/// A trait that distinguishes some ChaCha variants
-pub trait Variant: Clone {
-    /// the type used for the variant's nonce
-    type Nonce: AsRef<[u8]>;
-    /// the size of the Nonce in u32s
-    const NONCE_INDEX: usize;
-    /// the counter's type
-    type Counter;
-}
-
-#[derive(Clone)]
-/// The details pertaining to the IETF variant
-pub struct IETF();
-impl Variant for IETF {
-    type Counter = u32;
-    type Nonce = [u8; 12];
-    const NONCE_INDEX: usize = 13;
-}
-
 /// The ChaCha core function.
 #[cfg_attr(feature = "rand_core", derive(Clone))]
-pub struct ChaChaCore<R: Rounds, V:Variant> {
+pub struct ChaChaCore<R: Rounds, V: Variant> {
     /// Internal state of the core function
     state: [u32; STATE_WORDS],
     /// CPU target feature tokens
@@ -231,12 +218,12 @@ pub struct ChaChaCore<R: Rounds, V:Variant> {
     /// Number of rounds to perform
     rounds: PhantomData<R>,
     /// the variant of the implementation
-    variant: PhantomData<V>
+    variant: PhantomData<V>,
 }
 
 impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
     /// Constructs a ChaChaCore with the specified key, iv, and amount of rounds.
-    /// You must ensure that the iv is of the correct size when using this method 
+    /// You must ensure that the iv is of the correct size when using this method
     /// directly.
     fn new(key: &[u8; 32], iv: &[u8]) -> Self {
         let mut state = [0u32; STATE_WORDS];
@@ -267,22 +254,22 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
                 let tokens = ();
             }
         }
-        Self { 
-            state, 
-            tokens, 
+        Self {
+            state,
+            tokens,
             rounds: PhantomData,
-            variant: PhantomData
+            variant: PhantomData,
         }
     }
 
-    /// Generates 4 blocks in parallel with avx2 & neon, but merely fills 
+    /// Generates 4 blocks in parallel with avx2 & neon, but merely fills
     /// 4 blocks with sse2 & soft, writing them to the pointer's address.
     #[cfg(feature = "rand_core")]
     fn generate(&mut self, dest_ptr: *mut u8) {
         assert!(!dest_ptr.is_null());
         cfg_if! {
             if #[cfg(chacha20_force_soft)] {
-                backends::soft::Backend(self).rng_gen_ks_blocks(self, dest_ptr);
+                backends::soft::Backend(self).rng_gen_ks_blocks(dest_ptr);
             } else if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
                 cfg_if! {
                     if #[cfg(chacha20_force_avx2)] {
@@ -313,18 +300,38 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
                     backends::neon::inner::<R, V>(self, dest_ptr);
                 }
             } else {
-                backends::soft::Backend(self).gen_ks_blocks(self, dest_ptr);
+                backends::soft::Backend(self).gen_ks_blocks(dest_ptr);
             }
         }
     }
 }
 
-/*
 #[cfg(feature = "cipher")]
-impl<R: Rounds, V: Variant> cipher::StreamCipherCore for ChaChaCore<R, V> {
+impl<R: Rounds, V: Variant> StreamCipherSeekCore for ChaChaCore<R, V> {
+    type Counter = V::Counter;
+
+    #[inline(always)]
+    fn get_block_pos(&self) -> Self::Counter {
+        // seems like we have to cast a spell to do anything with this type
+        V::into_block_counter(&self.state[12..14])
+    }
+
+    #[inline(always)]
+    fn set_block_pos(&mut self, pos: Self::Counter) {
+        // seems like we have to cast a spell to do anything with this type
+        let result = V::from_block_counter(pos);
+        self.state[12] = result.as_ref()[0];
+        if !V::IS_U32 {
+            self.state[13] = result.as_ref()[1];
+        }
+    }
+}
+
+#[cfg(feature = "cipher")]
+impl<R: Rounds, V: Variant> StreamCipherCore for ChaChaCore<R, V> {
     #[inline(always)]
     fn remaining_blocks(&self) -> Option<usize> {
-        let rem = u32::MAX - self.get_block_pos();
+        let rem = V::remaining_blocks(self.get_block_pos());
         rem.try_into().ok()
     }
 
@@ -346,7 +353,7 @@ impl<R: Rounds, V: Variant> cipher::StreamCipherCore for ChaChaCore<R, V> {
                         let (avx2_token, sse2_token) = self.tokens;
                         if avx2_token.get() {
                             unsafe {
-                                backends::avx2::rng_inner::<R, _>(&mut self.state, f);
+                                backends::avx2::inner::<R, _>(&mut self.state, f);
                             }
                         } else if sse2_token.get() {
                             unsafe {
@@ -368,27 +375,10 @@ impl<R: Rounds, V: Variant> cipher::StreamCipherCore for ChaChaCore<R, V> {
     }
 }
 
-
 #[cfg(feature = "cipher")]
-impl<R: Rounds, V: Variant> cipher::BlockSizeUser for ChaChaCore<R, V> {
-    type BlockSize = cipher::consts::U64;
+impl<R: Rounds, V: Variant> BlockSizeUser for ChaChaCore<R, V> {
+    type BlockSize = U64;
 }
-
-#[cfg(feature = "cipher")]
-impl<R: Rounds, V: Variant> cipher::StreamCipherSeekCore for ChaChaCore<R, V> {
-    type Counter = u32;
-
-    #[inline(always)]
-    fn get_block_pos(&self) -> u32 {
-        self.state[12]
-    }
-
-    #[inline(always)]
-    fn set_block_pos(&mut self, pos: u32) {
-        self.state[12] = pos;
-    }
-}
-*/
 
 #[cfg(feature = "zeroize")]
 #[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]

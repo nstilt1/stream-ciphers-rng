@@ -1,15 +1,15 @@
 //! Portable implementation which does not rely on architecture-specific
 //! intrinsics.
 
-use crate::{ChaChaCore, Rounds, STATE_WORDS, Variant};
+use crate::{ChaChaCore, Rounds, Variant, STATE_WORDS};
 
 #[cfg(feature = "cipher")]
-use cipher::{
-    BlockSizeUser, ParBlocksSizeUser, StreamBackend,
-    consts::{U1, U64}
-};
-#[cfg(feature = "cipher")]
 use crate::chacha::Block;
+#[cfg(feature = "cipher")]
+use cipher::{
+    consts::{U1, U64},
+    BlockSizeUser, ParBlocksSizeUser, StreamBackend,
+};
 
 pub(crate) struct Backend<'a, R: Rounds, V: Variant>(pub(crate) &'a mut ChaChaCore<R, V>);
 
@@ -43,7 +43,7 @@ impl<'a, R: Rounds, V: Variant> Backend<'a, R, V> {
             for _i in 0..4 {
                 let res = run_rounds::<R>(&self.0.state);
                 self.0.state[12] = self.0.state[12].wrapping_add(1);
-                
+
                 for val in res.iter() {
                     block_ptr.write_unaligned(*val);
                     block_ptr = block_ptr.add(1);

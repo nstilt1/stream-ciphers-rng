@@ -192,7 +192,7 @@ mod legacy {
     use cipher::{StreamCipher, StreamCipherSeek, KeyIvInit};
     use hex_literal::hex;
 
-    cipher::stream_cipher_test!(chacha20_legacy_core, ChaCha20Legacy, "chacha20-legacy");
+    cipher::stream_cipher_test!(chacha20_legacy_core, "chacha20-legacy", ChaCha20Legacy);
     cipher::stream_cipher_seek_test!(chacha20_legacy_seek, ChaCha20Legacy);
 
     const KEY_LONG: [u8; 32] = hex!("

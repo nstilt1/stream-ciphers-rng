@@ -19,9 +19,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[cfg(feature = "zeroize")]
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-use crate::{
-    ChaChaCore, R8, R12, R20, IETF, Variant
-};
+use crate::{ChaChaCore, Variant, IETF, R12, R20, R8};
 
 // NB. this must remain consistent with some currently hard-coded numbers in this module
 const BUF_BLOCKS: u8 = 4;
@@ -255,7 +253,7 @@ macro_rules! impl_chacha_rng {
         pub struct $ChaChaXRng {
             core: $ChaChaXCore,
             buffer: BlockRngResults,
-            index: usize
+            index: usize,
         }
 
         /// The ChaCha core random number generator
@@ -269,7 +267,7 @@ macro_rules! impl_chacha_rng {
                 Self {
                     core: ChaChaCore::<$rounds, IETF>::from_seed(seed.into()),
                     buffer: BlockRngResults::default(),
-                    index: BlockRngResults::LEN
+                    index: BlockRngResults::LEN,
                 }
             }
         }
@@ -323,10 +321,8 @@ macro_rules! impl_chacha_rng {
                         self.generate_and_set(0);
                     }
 
-                    let (consumed_u32, filled_u8) = fill_via_u32_chunks(
-                        &self.buffer.as_ref()[self.index..],
-                        &mut dest[0..]
-                    );
+                    let (consumed_u32, filled_u8) =
+                        fill_via_u32_chunks(&self.buffer.as_ref()[self.index..], &mut dest[0..]);
                     self.index += consumed_u32;
                     dest_pos += filled_u8;
 
@@ -361,10 +357,8 @@ macro_rules! impl_chacha_rng {
                     return;
                 }
 
-                let (consumed_u32, _filled_u8) = fill_via_u32_chunks(
-                    &self.buffer.as_ref()[self.index..],
-                    &mut dest[dest_pos..]
-                );
+                let (consumed_u32, _filled_u8) =
+                    fill_via_u32_chunks(&self.buffer.as_ref()[self.index..], &mut dest[dest_pos..]);
                 self.index = consumed_u32;
                 return;
             }
@@ -417,11 +411,8 @@ macro_rules! impl_chacha_rng {
             pub fn get_word_pos(&self) -> u64 {
                 // block_pos is a multiple of 4, and offset by 4; therefore, it already has the
                 // last 2 bits set to 0, allowing us to shift it left 4 and add the index
-                let mut result = u64::from(
-                    self.core
-                        .state[12]
-                        .wrapping_sub(BUF_BLOCKS.into()),
-                ) << 4;
+                let mut result =
+                    u64::from(self.core.state[12].wrapping_sub(BUF_BLOCKS.into())) << 4;
                 result += self.index as u64;
                 // eliminate the 36th bit
                 result & 0xfffffffff
@@ -445,8 +436,7 @@ macro_rules! impl_chacha_rng {
                 // when not using `set_word_pos`, the block_pos is always a multiple of 4.
                 // This change follows those conventions, as well as maintaining the 6-bit
                 // index
-                self.core
-                    .state[12] = (u32::from_le_bytes(word_offset.0[0..4].try_into().unwrap()));
+                self.core.state[12] = (u32::from_le_bytes(word_offset.0[0..4].try_into().unwrap()));
                 // generate will increase block_pos by 4
                 self.generate_and_set((word_offset.0[4] & 0x0F) as usize);
             }
@@ -480,7 +470,10 @@ macro_rules! impl_chacha_rng {
             #[inline]
             pub fn get_stream(&self) -> u128 {
                 let mut result = [0u8; 16];
-                for (i, &big) in self.core.state[IETF::NONCE_INDEX..BLOCK_WORDS as usize].iter().enumerate() {
+                for (i, &big) in self.core.state[IETF::NONCE_INDEX..BLOCK_WORDS as usize]
+                    .iter()
+                    .enumerate()
+                {
                     let index = i * 4;
                     result[index + 0] = big as u8;
                     result[index + 1] = (big >> 8) as u8;
@@ -546,7 +539,7 @@ macro_rules! impl_chacha_rng {
                 $ChaChaXRng {
                     core,
                     buffer: BlockRngResults::default(),
-                    index: BlockRngResults::LEN
+                    index: BlockRngResults::LEN,
                 }
             }
         }
@@ -1060,10 +1053,10 @@ mod tests {
     #[test]
     /// The hash values from this are from a previous working version of the RNG
     fn test_fill_bytes_hashes() {
-        use sha2::{Sha256, Sha512, Digest};
-        use sha3::{Sha3_256, Sha3_512};
         use hex_literal::hex;
-        
+        use sha2::{Digest, Sha256, Sha512};
+        use sha3::{Sha3_256, Sha3_512};
+
         let mut rng = ChaCha20Rng::from_seed([0u8; 32]);
         let mut samples = [0u8; 4192];
         rng.fill_bytes(&mut samples[0..3]);
@@ -1083,7 +1076,10 @@ mod tests {
         let mut hasher = Sha256::new();
         hasher.update(samples);
         let sha256 = hasher.finalize();
-        assert_eq!(sha256, hex!("ded7b3a2b6a1cce08021a7130fee540ee44271af307b296b67c712c3543c3d66").into());
+        assert_eq!(
+            sha256,
+            hex!("ded7b3a2b6a1cce08021a7130fee540ee44271af307b296b67c712c3543c3d66").into()
+        );
         let mut hasher = Sha512::new();
         hasher.update(samples);
         let sha512 = hasher.finalize();
@@ -1092,7 +1088,10 @@ mod tests {
         let mut hasher = Sha3_256::new();
         hasher.update(samples);
         let sha3_256 = hasher.finalize();
-        assert_eq!(sha3_256, hex!("8c7a9aeb2f5a5c2b2f9a045acd6ca9961b466be6a4d6939c76a6edb714ded194").into());
+        assert_eq!(
+            sha3_256,
+            hex!("8c7a9aeb2f5a5c2b2f9a045acd6ca9961b466be6a4d6939c76a6edb714ded194").into()
+        );
 
         // testing
         let mut hasher = Sha3_512::new();
