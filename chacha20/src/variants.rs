@@ -32,8 +32,8 @@ impl VariantCounter for u32 {}
 
 #[derive(Clone)]
 /// The details pertaining to the IETF variant
-pub struct IETF();
-impl Variant for IETF {
+pub struct Ietf();
+impl Variant for Ietf {
     type Counter = u32;
     const IS_U32: bool = true;
     type Nonce = [u8; 12];

@@ -131,7 +131,7 @@ mod rng;
 mod xchacha;
 
 mod variants;
-use variants::{Variant, IETF};
+use variants::{Variant, Ietf};
 
 #[cfg(feature = "cipher")]
 pub use chacha::{ChaCha12, ChaCha20, ChaCha8, Key, KeyIvInit};

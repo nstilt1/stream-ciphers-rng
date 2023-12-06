@@ -19,7 +19,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[cfg(feature = "zeroize")]
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-use crate::{ChaChaCore, Variant, IETF, R12, R20, R8};
+use crate::{ChaChaCore, R12, R20, R8, variants::{Ietf, Variant}};
 
 // NB. this must remain consistent with some currently hard-coded numbers in this module
 const BUF_BLOCKS: u8 = 4;
@@ -257,7 +257,7 @@ macro_rules! impl_chacha_rng {
         }
 
         /// The ChaCha core random number generator
-        pub type $ChaChaXCore = ChaChaCore<$rounds, IETF>;
+        pub type $ChaChaXCore = ChaChaCore<$rounds, Ietf>;
 
         impl SeedableRng for $ChaChaXRng {
             type Seed = [u8; 32];
@@ -265,7 +265,7 @@ macro_rules! impl_chacha_rng {
             #[inline]
             fn from_seed(seed: Self::Seed) -> Self {
                 Self {
-                    core: ChaChaCore::<$rounds, IETF>::from_seed(seed.into()),
+                    core: ChaChaCore::<$rounds, Ietf>::from_seed(seed.into()),
                     buffer: BlockRngResults::default(),
                     index: BlockRngResults::LEN,
                 }
@@ -379,12 +379,12 @@ macro_rules! impl_chacha_rng {
             }
         }
 
-        impl SeedableRng for ChaChaCore<$rounds, IETF> {
+        impl SeedableRng for ChaChaCore<$rounds, Ietf> {
             type Seed = Seed;
 
             #[inline]
             fn from_seed(seed: Self::Seed) -> Self {
-                ChaChaCore::<$rounds, IETF>::new(seed.as_ref(), &[0u8; 12])
+                ChaChaCore::<$rounds, Ietf>::new(seed.as_ref(), &[0u8; 12])
             }
         }
 
@@ -451,7 +451,7 @@ macro_rules! impl_chacha_rng {
             #[inline]
             pub fn set_stream<S: Into<StreamId>>(&mut self, stream: S) {
                 let stream: StreamId = stream.into();
-                for (n, chunk) in self.core.state[IETF::NONCE_INDEX..BLOCK_WORDS as usize]
+                for (n, chunk) in self.core.state[Ietf::NONCE_INDEX..BLOCK_WORDS as usize]
                     .as_mut()
                     .iter_mut()
                     .zip(stream.0.chunks_exact(4))
@@ -467,7 +467,7 @@ macro_rules! impl_chacha_rng {
             #[inline]
             pub fn get_stream(&self) -> u128 {
                 let mut result = [0u8; 16];
-                for (i, &big) in self.core.state[IETF::NONCE_INDEX..BLOCK_WORDS as usize]
+                for (i, &big) in self.core.state[Ietf::NONCE_INDEX..BLOCK_WORDS as usize]
                     .iter()
                     .enumerate()
                 {
