@@ -1,23 +1,28 @@
 //! Portable implementation which does not rely on architecture-specific
 //! intrinsics.
 
-use crate::{Block, ChaChaCore, Unsigned, STATE_WORDS};
+use crate::{ChaChaCore, Rounds, Variant, STATE_WORDS};
+
+#[cfg(feature = "cipher")]
+use crate::chacha::Block;
+#[cfg(feature = "cipher")]
 use cipher::{
     consts::{U1, U64},
     BlockSizeUser, ParBlocksSizeUser, StreamBackend,
 };
 
-pub(crate) struct Backend<'a, R: Unsigned>(pub(crate) &'a mut ChaChaCore<R>);
+pub(crate) struct Backend<'a, R: Rounds, V: Variant>(pub(crate) &'a mut ChaChaCore<R, V>);
 
-impl<'a, R: Unsigned> BlockSizeUser for Backend<'a, R> {
+#[cfg(feature = "cipher")]
+impl<'a, R: Rounds, V: Variant> BlockSizeUser for Backend<'a, R, V> {
     type BlockSize = U64;
 }
-
-impl<'a, R: Unsigned> ParBlocksSizeUser for Backend<'a, R> {
+#[cfg(feature = "cipher")]
+impl<'a, R: Rounds, V: Variant> ParBlocksSizeUser for Backend<'a, R, V> {
     type ParBlocksSize = U1;
 }
-
-impl<'a, R: Unsigned> StreamBackend for Backend<'a, R> {
+#[cfg(feature = "cipher")]
+impl<'a, R: Rounds, V: Variant> StreamBackend for Backend<'a, R, V> {
     #[inline(always)]
     fn gen_ks_block(&mut self, block: &mut Block) {
         let res = run_rounds::<R>(&self.0.state);
@@ -29,11 +34,30 @@ impl<'a, R: Unsigned> StreamBackend for Backend<'a, R> {
     }
 }
 
+#[cfg(feature = "rand_core")]
+impl<'a, R: Rounds, V: Variant> Backend<'a, R, V> {
+    #[inline(always)]
+    pub(crate) fn rng_gen_ks_blocks(&mut self, dest_ptr: *mut u8) {
+        unsafe {
+            let mut block_ptr = dest_ptr as *mut u32;
+            for _i in 0..4 {
+                let res = run_rounds::<R>(&self.0.state);
+                self.0.state[12] = self.0.state[12].wrapping_add(1);
+
+                for val in res.iter() {
+                    block_ptr.write_unaligned(*val);
+                    block_ptr = block_ptr.add(1);
+                }
+            }
+        }
+    }
+}
+
 #[inline(always)]
-fn run_rounds<R: Unsigned>(state: &[u32; STATE_WORDS]) -> [u32; STATE_WORDS] {
+fn run_rounds<R: Rounds>(state: &[u32; STATE_WORDS]) -> [u32; STATE_WORDS] {
     let mut res = *state;
 
-    for _ in 0..R::USIZE {
+    for _ in 0..R::COUNT {
         // column rounds
         quarter_round(0, 4, 8, 12, &mut res);
         quarter_round(1, 5, 9, 13, &mut res);

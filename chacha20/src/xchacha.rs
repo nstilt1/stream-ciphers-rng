@@ -1,15 +1,15 @@
 //! XChaCha is an extended nonce variant of ChaCha
 
-use super::{ChaChaCore, Key, Nonce, CONSTANTS, STATE_WORDS};
 use cipher::{
-    consts::{U10, U16, U24, U32, U4, U6, U64},
-    generic_array::{typenum::Unsigned, GenericArray},
-    BlockSizeUser, IvSizeUser, KeyIvInit, KeySizeUser, StreamCipherCore, StreamCipherCoreWrapper,
-    StreamCipherSeekCore, StreamClosure,
+    consts::{U16, U24, U32},
+    generic_array::GenericArray,
+    IvSizeUser, KeyIvInit, KeySizeUser, StreamCipherCoreWrapper,
 };
 
-#[cfg(feature = "zeroize")]
-use cipher::zeroize::ZeroizeOnDrop;
+use crate::{variants::XChaChaVariant, ChaChaCore, Rounds, CONSTANTS, R12, R20, R8, STATE_WORDS};
+
+/// Key type used by all ChaCha variants.
+pub type Key = GenericArray<u8, U32>;
 
 /// Nonce type used by XChaCha variants.
 pub type XNonce = GenericArray<u8, U24>;
@@ -29,65 +29,28 @@ pub type XNonce = GenericArray<u8, U24>;
 /// and is documented in an (expired) IETF draft:
 ///
 /// <https://tools.ietf.org/html/draft-arciszewski-xchacha-03>
-pub type XChaCha20 = StreamCipherCoreWrapper<XChaChaCore<U10>>;
+pub type XChaCha20 = StreamCipherCoreWrapper<ChaChaCore<R20, XChaChaVariant>>;
 /// XChaCha12 stream cipher (reduced-round variant of [`XChaCha20`] with 12 rounds)
-pub type XChaCha12 = StreamCipherCoreWrapper<XChaChaCore<U6>>;
+pub type XChaCha12 = StreamCipherCoreWrapper<ChaChaCore<R12, XChaChaVariant>>;
 /// XChaCha8 stream cipher (reduced-round variant of [`XChaCha20`] with 8 rounds)
-pub type XChaCha8 = StreamCipherCoreWrapper<XChaChaCore<U4>>;
+pub type XChaCha8 = StreamCipherCoreWrapper<ChaChaCore<R8, XChaChaVariant>>;
 
-/// The XChaCha core function.
-pub struct XChaChaCore<R: Unsigned>(ChaChaCore<R>);
-
-impl<R: Unsigned> KeySizeUser for XChaChaCore<R> {
+impl<R: Rounds> KeySizeUser for ChaChaCore<R, XChaChaVariant> {
     type KeySize = U32;
 }
 
-impl<R: Unsigned> IvSizeUser for XChaChaCore<R> {
+impl<R: Rounds> IvSizeUser for ChaChaCore<R, XChaChaVariant> {
     type IvSize = U24;
 }
 
-impl<R: Unsigned> BlockSizeUser for XChaChaCore<R> {
-    type BlockSize = U64;
-}
-
-impl<R: Unsigned> KeyIvInit for XChaChaCore<R> {
+impl<R: Rounds> KeyIvInit for ChaChaCore<R, XChaChaVariant> {
     fn new(key: &Key, iv: &XNonce) -> Self {
         let subkey = hchacha::<R>(key, iv[..16].as_ref().into());
-        let mut padded_iv = Nonce::default();
-        padded_iv[4..].copy_from_slice(&iv[16..]);
-        XChaChaCore(ChaChaCore::new(&subkey, &padded_iv))
+
+        let iv = &iv[16..];
+        ChaChaCore::<R, XChaChaVariant>::new(subkey.as_ref(), &iv)
     }
 }
-
-impl<R: Unsigned> StreamCipherCore for XChaChaCore<R> {
-    #[inline(always)]
-    fn remaining_blocks(&self) -> Option<usize> {
-        self.0.remaining_blocks()
-    }
-
-    #[inline(always)]
-    fn process_with_backend(&mut self, f: impl StreamClosure<BlockSize = Self::BlockSize>) {
-        self.0.process_with_backend(f);
-    }
-}
-
-impl<R: Unsigned> StreamCipherSeekCore for XChaChaCore<R> {
-    type Counter = u32;
-
-    #[inline(always)]
-    fn get_block_pos(&self) -> u32 {
-        self.0.get_block_pos()
-    }
-
-    #[inline(always)]
-    fn set_block_pos(&mut self, pos: u32) {
-        self.0.set_block_pos(pos);
-    }
-}
-
-#[cfg(feature = "zeroize")]
-#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
-impl<R: Unsigned> ZeroizeOnDrop for XChaChaCore<R> {}
 
 /// The HChaCha function: adapts the ChaCha core function in the same
 /// manner that HSalsa adapts the Salsa function.
@@ -103,7 +66,7 @@ impl<R: Unsigned> ZeroizeOnDrop for XChaChaCore<R> {}
 /// For more information on HSalsa on which HChaCha is based, see:
 ///
 /// <http://cr.yp.to/snuffle/xsalsa-20110204.pdf>
-pub fn hchacha<R: Unsigned>(key: &Key, input: &GenericArray<u8, U16>) -> GenericArray<u8, U32> {
+pub fn hchacha<R: Rounds>(key: &Key, input: &GenericArray<u8, U16>) -> GenericArray<u8, U32> {
     let mut state = [0u32; STATE_WORDS];
     state[..4].copy_from_slice(&CONSTANTS);
 
@@ -117,7 +80,7 @@ pub fn hchacha<R: Unsigned>(key: &Key, input: &GenericArray<u8, U16>) -> Generic
     }
 
     // R rounds consisting of R/2 column rounds and R/2 diagonal rounds
-    for _ in 0..R::USIZE {
+    for _ in 0..R::COUNT {
         // column rounds
         quarter_round(0, 4, 8, 12, &mut state);
         quarter_round(1, 5, 9, 13, &mut state);
@@ -166,6 +129,8 @@ fn quarter_round(a: usize, b: usize, c: usize, d: usize, state: &mut [u32; STATE
 
 #[cfg(test)]
 mod hchacha20_tests {
+    use crate::R20;
+
     use super::*;
     use hex_literal::hex;
 
@@ -185,7 +150,7 @@ mod hchacha20_tests {
             "a0f9e4d58a74a853c12ec41326d3ecdc"
         );
 
-        let actual = hchacha::<U10>(
+        let actual = hchacha::<R20>(
             GenericArray::from_slice(&KEY),
             GenericArray::from_slice(&INPUT),
         );
