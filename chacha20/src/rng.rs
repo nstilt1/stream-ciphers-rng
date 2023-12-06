@@ -409,12 +409,15 @@ macro_rules! impl_chacha_rng {
             /// byte-offset.
             #[inline]
             pub fn get_word_pos(&self) -> u64 {
-                // block_pos is a multiple of 4, and offset by 4; therefore, it already has the
-                // last 2 bits set to 0, allowing us to shift it left 4 and add the index
-                let mut result =
-                    u64::from(self.core.state[12].wrapping_sub(BUF_BLOCKS.into())) << 4;
+                let mut result = u64::from(
+                    self.core
+                        .block
+                        .get_block_pos()
+                        .wrapping_sub(BUF_BLOCKS.into()),
+                ) << 4;
+              
                 result += self.index as u64;
-                // eliminate the 36th bit
+                // eliminate bits above and including the 36th bit
                 result & 0xfffffffff
             }
 
@@ -433,10 +436,10 @@ macro_rules! impl_chacha_rng {
             #[inline]
             pub fn set_word_pos<W: Into<WordPosInput>>(&mut self, word_offset: W) {
                 let word_offset: WordPosInput = word_offset.into();
-                // when not using `set_word_pos`, the block_pos is always a multiple of 4.
-                // This change follows those conventions, as well as maintaining the 6-bit
-                // index
-                self.core.state[12] = (u32::from_le_bytes(word_offset.0[0..4].try_into().unwrap()));
+                self.core
+                    .block
+                    .set_block_pos(u32::from_le_bytes(word_offset.0[0..4].try_into().unwrap()));
+
                 // generate will increase block_pos by 4
                 self.generate_and_set((word_offset.0[4] & 0x0F) as usize);
             }
@@ -716,7 +719,10 @@ mod tests {
         for _i in 0..1024 {
             let word_pos = rng.next_u64() & ((1 << 36 as u64) - 1);
             rng.set_word_pos(word_pos);
-            assert_eq!(word_pos, rng.get_word_pos());
+            let increment = rng.next_u32() & 0xFFF;
+            expend_u32(&mut rng, increment as usize);
+            let expected_word_pos = (increment as u64 + word_pos) & ((1 << 36) - 1);
+            assert_eq!(expected_word_pos + 1, rng.get_word_pos());
         }
     }
     #[test]
