@@ -1,7 +1,7 @@
 //! Portable implementation which does not rely on architecture-specific
 //! intrinsics.
 
-use crate::{ChaChaCore, Rounds, Variant, STATE_WORDS};
+use crate::{ChaChaCore, Rounds, variants::Variant, STATE_WORDS};
 
 #[cfg(feature = "cipher")]
 use crate::chacha::Block;

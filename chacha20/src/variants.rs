@@ -88,7 +88,7 @@ impl Variant for XChaChaVariant {
     type Counter = u32;
     type Nonce = [u8; 12];
     const IS_U32: bool = true;
-    const NONCE_INDEX: usize = 14;
+    const NONCE_INDEX: usize = 13;
     type CounterVals = [u32; 1];
     fn into_block_counter(vals: &[u32]) -> Self::Counter {
         vals[0]

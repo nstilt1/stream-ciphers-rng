@@ -1,4 +1,4 @@
-use crate::{Rounds, ChaChaCore, Variant, STATE_WORDS};
+use crate::{Rounds, ChaChaCore, variants::Variant, STATE_WORDS};
 use core::marker::PhantomData;
 
 #[cfg(target_arch = "x86")]

@@ -47,8 +47,11 @@ impl<R: Rounds> KeyIvInit for ChaChaCore<R, XChaChaVariant> {
     fn new(key: &Key, iv: &XNonce) -> Self {
         let subkey = hchacha::<R>(key, iv[..16].as_ref().into());
 
-        let iv = &iv[16..];
-        ChaChaCore::<R, XChaChaVariant>::new(subkey.as_ref(), &iv)
+        let mut nonce = [0u8; 12];
+        // first 4 bytes are 0, last 8 bytes are last 8 from the iv 
+        // according to draft-arciszewski-xchacha-03
+        nonce[4..].copy_from_slice(&iv[16..]);
+        ChaChaCore::<R, XChaChaVariant>::new(subkey.as_ref(), &nonce)
     }
 }
 
