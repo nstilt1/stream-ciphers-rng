@@ -20,11 +20,11 @@ struct Backend<R: Rounds, V: Variant> {
     variant: PhantomData<V>
 }
 #[cfg(feature = "cipher")]
-impl<R: Rounds> BlockSizeUser for Backend<R> {
+impl<R: Rounds, V: Variant> BlockSizeUser for Backend<R, V> {
     type BlockSize = U64;
 }
 #[cfg(feature = "cipher")]
-impl<R: Rounds> ParBlocksSizeUser for Backend<R> {
+impl<R: Rounds, V: Variant> ParBlocksSizeUser for Backend<R, V> {
     type ParBlocksSize = U4;
 }
 
@@ -37,7 +37,7 @@ where
     F: StreamClosure<BlockSize = U64>,
     V: Variant
 {
-    let mut backend = Backend::<R> {
+    let mut backend = Backend::<R, V> {
         state: [
             vld1q_u32(state.as_ptr().offset(0)),
             vld1q_u32(state.as_ptr().offset(4)),
@@ -49,12 +49,13 @@ where
     };
 
     f.call(&mut backend);
-
-    // handle 32-bit counter
-    vst1q_u32(state.as_mut_ptr().offset(12), backend.state[3]);
+    
     if V::IS_U32 {
+        // handle 32-bit counter
+        vst1q_u32(state.as_mut_ptr().offset(12), backend.state[3]);
+    }else{
         // handle 64-bit counter
-        
+        vst1q_u64(state.as_mut_ptr().offset(12), backend.state[3]);
     }
 }
 
@@ -68,7 +69,7 @@ macro_rules! add64 {
 }
 
 #[cfg(feature = "cipher")]
-impl<R: Rounds> StreamBackend for Backend<R> {
+impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
     #[inline(always)]
     fn gen_ks_block(&mut self, block: &mut Block) {
         let state3 = self.state[3];
@@ -76,7 +77,11 @@ impl<R: Rounds> StreamBackend for Backend<R> {
         self.gen_par_ks_blocks(&mut par);
         *block = par[0];
         unsafe {
-            self.state[3] = add64!(state3, vld1q_u32([1, 0, 0, 0].as_ptr()));
+            if V::IS_U32 {
+                self.state[3] = add64!(state3, vld1q_u32([1, 0, 0, 0].as_ptr()));
+            }else{
+                self.state[3] = vaddq_u64(state3, vld1q_u64([1, 0].as_ptr()));
+            }
         }
     }
 
@@ -104,12 +109,17 @@ impl<R: Rounds> StreamBackend for Backend<R> {
         }
 
         unsafe {
-            let ctrs = [
+            let ctrs = if V::IS_U32{[
                 vld1q_u32([1, 0, 0, 0].as_ptr()),
                 vld1q_u32([2, 0, 0, 0].as_ptr()),
                 vld1q_u32([3, 0, 0, 0].as_ptr()),
                 vld1q_u32([4, 0, 0, 0].as_ptr()),
-            ];
+            ]}else{[
+                vld1q_u64([1, 0].as_ptr()),
+                vld1q_u64([2, 0].as_ptr()),
+                vld1q_u64([3, 0].as_ptr()),
+                vld1q_u64([4, 0].as_ptr()),
+            ]};
 
             let mut r0_0 = self.state[0];
             let mut r0_1 = self.state[1];
@@ -119,17 +129,29 @@ impl<R: Rounds> StreamBackend for Backend<R> {
             let mut r1_0 = self.state[0];
             let mut r1_1 = self.state[1];
             let mut r1_2 = self.state[2];
-            let mut r1_3 = add64!(r0_3, ctrs[0]);
+            let mut r1_3 = if V::IS_U32 {
+                add64!(r0_3, ctrs[0])
+            }else{
+                vaddq_u64(r0_3, ctrs[0])
+            };
 
             let mut r2_0 = self.state[0];
             let mut r2_1 = self.state[1];
             let mut r2_2 = self.state[2];
-            let mut r2_3 = add64!(r0_3, ctrs[1]);
+            let mut r2_3 = if V::IS_U32 {
+                add64!(r0_3, ctrs[1]);
+            }else{
+                vaddq_u64(r0_3, ctrs[1])
+            };
 
             let mut r3_0 = self.state[0];
             let mut r3_1 = self.state[1];
             let mut r3_2 = self.state[2];
-            let mut r3_3 = add64!(r0_3, ctrs[2]);
+            let mut r3_3 = if V::IS_U32 {
+                add64!(r0_3, ctrs[2])
+            }else{
+                vaddq_u64(r0_3, ctrs[2])
+            };
 
             for _ in 0..R::COUNT {
                 r0_0 = vaddq_u32(r0_0, r0_1);
@@ -294,19 +316,31 @@ impl<R: Rounds> StreamBackend for Backend<R> {
             r1_1 = vaddq_u32(r1_1, self.state[1]);
             r1_2 = vaddq_u32(r1_2, self.state[2]);
             r1_3 = vaddq_u32(r1_3, self.state[3]);
-            r1_3 = add64!(r1_3, ctrs[0]);
+            r1_3 = if V::IS_U32 {
+                add64!(r1_3, ctrs[0])
+            }else{
+                vaddq_u64(r1_3, ctrs[0])
+            };
 
             r2_0 = vaddq_u32(r2_0, self.state[0]);
             r2_1 = vaddq_u32(r2_1, self.state[1]);
             r2_2 = vaddq_u32(r2_2, self.state[2]);
             r2_3 = vaddq_u32(r2_3, self.state[3]);
-            r2_3 = add64!(r2_3, ctrs[1]);
+            r2_3 = if V::IS_U32 {
+                add64!(r2_3, ctrs[1])
+            }else{
+                vaddq_u64(r2_3, ctrs[2])
+            };
 
             r3_0 = vaddq_u32(r3_0, self.state[0]);
             r3_1 = vaddq_u32(r3_1, self.state[1]);
             r3_2 = vaddq_u32(r3_2, self.state[2]);
             r3_3 = vaddq_u32(r3_3, self.state[3]);
-            r3_3 = add64!(r3_3, ctrs[2]);
+            r3_3 = if V::IS_U32 {
+                add64!(r3_3, ctrs[2])
+            }else{
+                vaddq_u64(r3_3, ctrs[2])
+            };
 
             vst1q_u8(blocks[0].as_mut_ptr().offset(0), vreinterpretq_u8_u32(r0_0));
             vst1q_u8(
@@ -364,7 +398,11 @@ impl<R: Rounds> StreamBackend for Backend<R> {
                 vreinterpretq_u8_u32(r3_3),
             );
 
-            self.state[3] = add64!(self.state[3], ctrs[3]);
+            if V::IS_U32 {
+                self.state[3] = add64!(self.state[3], ctrs[3]);
+            }else{
+                self.state[3] = vaddq_u64(self.state[3], ctrs[3]);
+            }
         }
     }
 }
@@ -388,15 +426,20 @@ where
             vld1q_u32(core.state.as_ptr().offset(12)),
         ],
         _pd: PhantomData,
+        variant: PhantomData
     };
 
     backend.rng_gen_par_ks_blocks(dest);
 
-    vst1q_u32(core.state.as_mut_ptr().offset(12), backend.state[3]);
+    if V::IS_U32 {
+        vst1q_u32(core.state.as_mut_ptr().offset(12), backend.state[3]);
+    }else{
+        vst1q_u64(core.state.as_mut_ptr().offset(12), backend.state[3]);
+    }
 }
 
 #[cfg(feature = "rand_core")]
-impl<R: Rounds> Backend<R> {
+impl<R: Rounds, V: Variant> Backend<R, V> {
     #[inline(always)]
     /// This is essentially the same as the `gen_par_ks_blocks` method except
     /// it takes a pointer instead.

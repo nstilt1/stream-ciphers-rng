@@ -66,7 +66,12 @@ where
 
     f.call(&mut backend);
 
-    state[12] = _mm256_extract_epi32(backend.ctr[0], 0) as u32;
+    // handle 32-bit counter
+    core.state[12] = _mm256_extract_epi32(backend.ctr[0], 0) as u32;
+    // handle 64-bit counter
+    if V::IS_U32 {
+        core.state[13] = _mm256_extract_epi32(backend.ctr[0], 1) as u32;
+    }
 }
 
 #[cfg(feature = "cipher")]

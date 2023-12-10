@@ -60,22 +60,23 @@ impl VariantCounter for u64 {}
 
 #[cfg(feature = "legacy")]
 impl Variant for Legacy {
-    type Counter = u32;
-    const IS_U32: bool = true;
+    type Counter = u64;
+    const IS_U32: bool = false;
     type Nonce = crate::legacy::LegacyNonce;
     const NONCE_INDEX: usize = 14;
-    type CounterVals = [u32; 1];
+    //type CounterVals = [u32; 1];
+    type CounterVals = [u32; 2];
     fn into_block_counter(vals: &[u32]) -> Self::Counter {
-        vals[0]
-        //(vals[0] as u64) << 32 | (vals[1] as u64)
+        //vals[0]
+        (vals[0] as u64) << 32 | (vals[1] as u64)
     }
     fn from_block_counter(val: Self::Counter) -> Self::CounterVals {
-        [val]
-        //[(val >> 32) as u32, val as u32];
+        //[val]
+        [(val >> 32) as u32, val as u32]
     }
     fn remaining_blocks(block_counter: Self::Counter) -> Self::Counter {
-        u32::MAX - block_counter
-        //u64::MAX - block_counter
+        //u32::MAX - block_counter
+        u64::MAX - block_counter
     }
 }
 
