@@ -26,6 +26,17 @@ impl<'a, R: Rounds, V: Variant> StreamBackend for Backend<'a, R, V> {
     #[inline(always)]
     fn gen_ks_block(&mut self, block: &mut Block) {
         let res = run_rounds::<R>(&self.0.state);
+        if V::IS_U32 {
+            self.0.state[12] = self.0.state[12].wrapping_add(1);
+        }else{
+            let no_overflow = self.0.state[13].checked_add(1);
+            if no_overflow.as_ref().is_some() {
+                self.0.state[13] = no_overflow.unwrap();
+            }else{
+                self.0.state[12] = self.0.state[12].wrapping_add(1);
+                self.0.state[13] = 0;
+            }
+        }
         self.0.state[12] = self.0.state[12].wrapping_add(1);
 
         for (chunk, val) in block.chunks_exact_mut(4).zip(res.iter()) {
