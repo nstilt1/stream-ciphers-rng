@@ -14,9 +14,10 @@ use cipher::{
     BlockSizeUser, ParBlocks, ParBlocksSizeUser, StreamBackend, StreamClosure,
 };
 
-struct Backend<R: Rounds> {
+struct Backend<R: Rounds, V: Variant> {
     state: [uint32x4_t; 4],
     _pd: PhantomData<R>,
+    variant: PhantomData<V>
 }
 #[cfg(feature = "cipher")]
 impl<R: Rounds> BlockSizeUser for Backend<R> {
@@ -30,10 +31,11 @@ impl<R: Rounds> ParBlocksSizeUser for Backend<R> {
 #[inline]
 #[cfg(feature = "cipher")]
 #[target_feature(enable = "neon")]
-pub(crate) unsafe fn inner<R, F>(state: &mut [u32; STATE_WORDS], f: F)
+pub(crate) unsafe fn inner<R, F, V>(state: &mut [u32; STATE_WORDS], f: F)
 where
     R: Rounds,
     F: StreamClosure<BlockSize = U64>,
+    V: Variant
 {
     let mut backend = Backend::<R> {
         state: [
@@ -43,11 +45,17 @@ where
             vld1q_u32(state.as_ptr().offset(12)),
         ],
         _pd: PhantomData,
+        variant: V
     };
 
     f.call(&mut backend);
 
+    // handle 32-bit counter
     vst1q_u32(state.as_mut_ptr().offset(12), backend.state[3]);
+    if V::IS_U32 {
+        // handle 64-bit counter
+        
+    }
 }
 
 macro_rules! add64 {
