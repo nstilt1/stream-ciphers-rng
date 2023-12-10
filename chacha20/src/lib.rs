@@ -343,11 +343,11 @@ impl<R: Rounds, V: Variant> StreamCipherCore for ChaChaCore<R, V> {
                 cfg_if! {
                     if #[cfg(chacha20_force_avx2)] {
                         unsafe {
-                            backends::avx2::inner::<R, _>(&mut self.state, f);
+                            backends::avx2::inner::<R, _, V>(&mut self.state, f);
                         }
                     } else if #[cfg(chacha20_force_sse2)] {
                         unsafe {
-                            backends::sse2::inner::<R, _>(&mut self.state, f);
+                            backends::sse2::inner::<R, _, V>(&mut self.state, f);
                         }
                     } else {
                         let (avx2_token, sse2_token) = self.tokens;
@@ -357,7 +357,7 @@ impl<R: Rounds, V: Variant> StreamCipherCore for ChaChaCore<R, V> {
                             }
                         } else if sse2_token.get() {
                             unsafe {
-                                backends::sse2::inner::<R, _>(&mut self.state, f);
+                                backends::sse2::inner::<R, _, V>(&mut self.state, f);
                             }
                         } else {
                             f.call(&mut backends::soft::Backend(self));
@@ -366,7 +366,7 @@ impl<R: Rounds, V: Variant> StreamCipherCore for ChaChaCore<R, V> {
                 }
             } else if #[cfg(all(chacha20_force_neon, target_arch = "aarch64", target_feature = "neon"))] {
                 unsafe {
-                    backends::neon::inner::<R, _>(&mut self.state, f);
+                    backends::neon::inner::<R, _, V>(&mut self.state, f);
                 }
             } else {
                 f.call(&mut backends::soft::Backend(self));

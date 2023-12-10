@@ -14,29 +14,31 @@ use cipher::{
 #[cfg(feature = "cipher")]
 use crate::chacha::Block;
 
-struct Backend<R: Rounds> {
+struct Backend<R: Rounds, V: Variant> {
     v: [__m128i; 4],
     _pd: PhantomData<R>,
+    variant: PhantomData<V>
 }
 #[cfg(feature = "cipher")]
-impl<R: Rounds> BlockSizeUser for Backend<R> {
+impl<R: Rounds, V: Variant> BlockSizeUser for Backend<R, V> {
     type BlockSize = U64;
 }
 #[cfg(feature = "cipher")]
-impl<R: Rounds> ParBlocksSizeUser for Backend<R> {
+impl<R: Rounds, V: Variant> ParBlocksSizeUser for Backend<R, V> {
     type ParBlocksSize = U1;
 }
 
 #[inline]
 #[cfg(feature = "cipher")]
 #[target_feature(enable = "sse2")]
-pub(crate) unsafe fn inner<R, F>(state: &mut [u32; STATE_WORDS], f: F)
+pub(crate) unsafe fn inner<R, F, V>(state: &mut [u32; STATE_WORDS], f: F)
 where
     R: Rounds,
     F: StreamClosure<BlockSize = U64>,
+    V: Variant
 {
     let state_ptr = state.as_ptr() as *const __m128i;
-    let mut backend = Backend::<R> {
+    let mut backend = Backend::<R, V> {
         v: [
             _mm_loadu_si128(state_ptr.add(0)),
             _mm_loadu_si128(state_ptr.add(1)),
@@ -44,20 +46,28 @@ where
             _mm_loadu_si128(state_ptr.add(3)),
         ],
         _pd: PhantomData,
+        variant: PhantomData
     };
 
     f.call(&mut backend);
 
     state[12] = _mm_cvtsi128_si32(backend.v[3]) as u32;
+    if V::IS_U32 {
+        state[13] = _mm_extract_epi32(backend.v[3], 1) as u32;
+    }
 }
 
 #[cfg(feature = "cipher")]
-impl<R: Rounds> StreamBackend for Backend<R> {
+impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
     #[inline(always)]
     fn gen_ks_block(&mut self, block: &mut Block) {
         unsafe {
             let res = rounds::<R>(&self.v);
-            self.v[3] = _mm_add_epi32(self.v[3], _mm_set_epi32(0, 0, 0, 1));
+            if V::IS_U32 {
+                self.v[3] = _mm_add_epi32(self.v[3], _mm_set_epi32(0, 0, 0, 1));
+            }else{
+                self.v[3] = _mm_add_epi64(self.v[3], _mm_set_epi64x(0, 1));
+            }
 
             let block_ptr = block.as_mut_ptr() as *mut __m128i;
             for i in 0..4 {
@@ -80,7 +90,7 @@ where
     V: Variant
 {
     let state_ptr = core.state.as_ptr() as *const __m128i;
-    let mut backend = Backend::<R> {
+    let mut backend = Backend::<R, V> {
         v: [
             _mm_loadu_si128(state_ptr.add(0)),
             _mm_loadu_si128(state_ptr.add(1)),
@@ -88,6 +98,7 @@ where
             _mm_loadu_si128(state_ptr.add(3)),
         ],
         _pd: PhantomData,
+        variant: PhantomData
     };
 
     for _i in 0..4 {
@@ -99,13 +110,17 @@ where
 }
 
 #[cfg(feature = "rand_core")]
-impl<R: Rounds> Backend<R> {
+impl<R: Rounds, V: Variant> Backend<R, V> {
     #[inline(always)]
     /// T
     fn rng_gen_ks_block(&mut self, block: *mut u8) {
         unsafe {
             let res = rounds::<R>(&self.v);
-            self.v[3] = _mm_add_epi32(self.v[3], _mm_set_epi32(0, 0, 0, 1));
+            if V::IS_U32 {
+                self.v[3] = _mm_add_epi32(self.v[3], _mm_set_epi32(0, 0, 0, 1));
+            }else{
+                self.v[3] = _mm_add_epi64(self.v[3], _mm_set_epi64x(0, 1));
+            }
 
             let block_ptr = block as *mut __m128i;
             for i in 0..4 {
