@@ -353,7 +353,7 @@ impl<R: Rounds, V: Variant> StreamCipherCore for ChaChaCore<R, V> {
                         let (avx2_token, sse2_token) = self.tokens;
                         if avx2_token.get() {
                             unsafe {
-                                backends::avx2::inner::<R, _>(&mut self.state, f);
+                                backends::avx2::inner::<R, _, V>(&mut self.state, f);
                             }
                         } else if sse2_token.get() {
                             unsafe {
