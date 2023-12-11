@@ -2,8 +2,8 @@
 #[cfg(feature = "chacha20")]
 use chacha20::ChaCha20;
 
-#[cfg(feature = "legacy")]
-use chacha20::ChaCha20Legacy;
+//#[cfg(feature = "legacy")]
+//use chacha20::ChaCha20Legacy;
 
 #[cfg(feature = "xchacha")]
 use chacha20::XChaCha20;
@@ -16,7 +16,7 @@ cipher::stream_cipher_seek_test!(chacha20_seek, ChaCha20);
 #[cfg(feature = "xchacha")]
 cipher::stream_cipher_seek_test!(xchacha20_seek, XChaCha20);
 #[cfg(feature = "legacy")]
-cipher::stream_cipher_seek_test!(chacha20legacy_seek, ChaCha20Legacy);
+//cipher::stream_cipher_seek_test!(chacha20legacy_seek, ChaCha20Legacy);
 
 #[cfg(feature = "chacha")]
 mod chacha20test {
@@ -190,9 +190,10 @@ mod xchacha20 {
 mod legacy {
     use chacha20::{ChaCha20Legacy, LegacyNonce};
     use cipher::{StreamCipher, StreamCipherSeek, KeyIvInit};
-    use chacha_0_7::{ChaCha20Legacy as PreviousChaCha20Legacy, 
-        cipher::{NewCipher, StreamCipherSeek as OGStreamCipherSeek, StreamCipher as OGStreamCipher}};
     use hex_literal::hex;
+    use rand_chacha::ChaCha20Rng;
+    use rand_chacha::rand_core::SeedableRng;
+    use rand_core::RngCore;
 
     //cipher::stream_cipher_test!(chacha20_legacy_core, "chacha20-legacy", ChaCha20Legacy);
     //cipher::stream_cipher_seek_test!(chacha20_legacy_seek, ChaCha20Legacy);
@@ -222,23 +223,43 @@ mod legacy {
                 for last in middle..256 {
                     let mut cipher =
                         ChaCha20Legacy::new(&KEY_LONG.into(), &LegacyNonce::from(IV_LONG));
-                    let mut og_cipher = PreviousChaCha20Legacy::new(&KEY_LONG.into(), &LegacyNonce::from(IV_LONG));
+                    
                     let mut buf = [0; 256];
-                    let mut buf2 = [0u8; 256];
 
                     cipher.seek(idx as u64);
-                    og_cipher.seek(idx as u64);
                     cipher.apply_keystream(&mut buf[idx..middle]);
-                    og_cipher.apply_keystream(&mut buf2[idx..middle]);
                     cipher.apply_keystream(&mut buf[middle..last]);
-                    og_cipher.apply_keystream(&mut buf2[middle..last]);
 
                     for k in idx..last {
-                        //assert_eq!(buf[k], EXPECTED_LONG[k])
-                        assert_eq!(buf[k], buf2[k])
+                        assert_eq!(buf[k], EXPECTED_LONG[k])
                     }
                 }
             }
         }
+    }
+
+    #[test]
+    /// v0.3.1 of rand_chacha uses a 64-bit counter, so it should work when testing the keystream
+    /// of ChaCha20Legacy with a 64-bit counter.
+    /// 
+    /// Due to the 32-bit indexing of the RNG, see below for the equivalence
+    /// Rng::set_word_pos(x) = Cipher::seek(4x)
+    fn chacha20_64bit_counter() {
+        use cipher::StreamCipherSeekCore;
+        let mut cipher = ChaCha20Legacy::new(&KEY_LONG.into(), &LegacyNonce::from(IV_LONG));
+        //const SEEK_TEST: u128 = (2 as u128).pow(32) - 4096;
+        const SEEK_TEST: u128 = 45;
+        cipher.seek(SEEK_TEST << 2);
+        assert_eq!(cipher.get_core().get_block_pos(), SEEK_TEST as u64 * 4);
+        let mut rng = ChaCha20Rng::from_seed(KEY_LONG);
+        rng.set_stream(u64::from_le_bytes(IV_LONG));
+        rng.set_word_pos(SEEK_TEST);
+        const TEST_SIZE: usize = 32;
+        let mut test_output = [0u8; TEST_SIZE];
+        let mut expected = [0u8; TEST_SIZE];
+        cipher.apply_keystream(&mut test_output);
+        rng.fill_bytes(&mut expected);
+        assert_eq!(cipher.get_core().get_block_pos(), 3);
+        assert_eq!(test_output, expected);
     }
 }

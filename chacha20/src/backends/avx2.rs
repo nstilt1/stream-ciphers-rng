@@ -1,5 +1,7 @@
-use crate::{Rounds, ChaChaCore, variants::Variant, STATE_WORDS};
+use crate::{Rounds, variants::Variant, STATE_WORDS};
 use core::marker::PhantomData;
+#[cfg(feature = "rand_core")]
+use crate::ChaChaCore;
 
 #[cfg(target_arch = "x86")]
 use core::arch::x86::*;
@@ -67,10 +69,10 @@ where
     f.call(&mut backend);
 
     // handle 32-bit counter
-    core.state[12] = _mm256_extract_epi32(backend.ctr[0], 0) as u32;
+    state[12] = _mm256_extract_epi32(backend.ctr[0], 0) as u32;
     // handle 64-bit counter
     if V::IS_U32 {
-        core.state[13] = _mm256_extract_epi32(backend.ctr[0], 1) as u32;
+        state[13] = _mm256_extract_epi32(backend.ctr[0], 1) as u32;
     }
 }
 

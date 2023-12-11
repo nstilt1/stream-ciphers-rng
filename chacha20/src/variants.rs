@@ -20,10 +20,12 @@ pub trait Variant: Clone {
     const IS_U32: bool;
     /// The result type of `from_block_counter` to handle either 1 or 2 u32 vals
     type CounterVals: AsRef<[u32]>;
-    /// A helper method for getting the block pos using these types
-    fn into_block_counter(vals: &[u32]) -> Self::Counter;
-    /// A helper method for setting the block pos using these types
-    fn from_block_counter(val: Self::Counter) -> Self::CounterVals;
+    /// Takes a &[u32; 2] and converts it into the Self::Counter type.
+    /// The input is [state[12], state[13]]
+    fn get_pos_helper(vals: &[u32]) -> Self::Counter;
+    /// Breaks down the Self::Counter type into a u32 array for setting the 
+    /// block pos.
+    fn set_pos_helper(val: Self::Counter) -> Self::CounterVals;
     /// A helper method for calculating the remaining blocks using these types
     fn remaining_blocks(block_pos: Self::Counter) -> Self::Counter;
 }
@@ -40,10 +42,10 @@ impl Variant for Ietf {
     const NONCE_INDEX: usize = 13;
     type CounterVals = [u32; 1];
 
-    fn into_block_counter(vals: &[u32]) -> Self::Counter {
+    fn get_pos_helper(vals: &[u32]) -> Self::Counter {
         vals[0]
     }
-    fn from_block_counter(val: Self::Counter) -> Self::CounterVals {
+    fn set_pos_helper(val: Self::Counter) -> Self::CounterVals {
         [val]
     }
     fn remaining_blocks(block_pos: Self::Counter) -> Self::Counter {
@@ -66,13 +68,12 @@ impl Variant for Legacy {
     const NONCE_INDEX: usize = 14;
     //type CounterVals = [u32; 1];
     type CounterVals = [u32; 2];
-    fn into_block_counter(vals: &[u32]) -> Self::Counter {
+    fn get_pos_helper(vals: &[u32]) -> Self::Counter {
         //vals[0]
         (vals[0] as u64) << 32 | (vals[1] as u64)
     }
-    fn from_block_counter(val: Self::Counter) -> Self::CounterVals {
-        //[val]
-        [(val >> 32) as u32, val as u32]
+    fn set_pos_helper(val: Self::Counter) -> Self::CounterVals {
+        [val as u32, (val >> 32) as u32]
     }
     fn remaining_blocks(block_counter: Self::Counter) -> Self::Counter {
         //u32::MAX - block_counter
@@ -91,10 +92,10 @@ impl Variant for XChaChaVariant {
     const IS_U32: bool = true;
     const NONCE_INDEX: usize = 13;
     type CounterVals = [u32; 1];
-    fn into_block_counter(vals: &[u32]) -> Self::Counter {
+    fn get_pos_helper(vals: &[u32]) -> Self::Counter {
         vals[0]
     }
-    fn from_block_counter(val: Self::Counter) -> Self::CounterVals {
+    fn set_pos_helper(val: Self::Counter) -> Self::CounterVals {
         [val]
     }
     fn remaining_blocks(block_pos: Self::Counter) -> Self::Counter {
