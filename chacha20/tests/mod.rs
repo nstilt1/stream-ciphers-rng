@@ -17,7 +17,6 @@ cipher::stream_cipher_seek_test!(chacha20_seek, ChaCha20);
 cipher::stream_cipher_seek_test!(xchacha20_seek, XChaCha20);
 #[cfg(feature = "legacy")]
 //cipher::stream_cipher_seek_test!(chacha20legacy_seek, ChaCha20Legacy);
-
 #[cfg(feature = "chacha")]
 mod chacha20test {
     use chacha20::{ChaCha20, Key, Nonce};

@@ -1,9 +1,12 @@
 # This config file will choose which Rust Flag to use for the benches.
 # Rename this file to "config" and uncomment out a rustflag to use it.
 # The config file will be excluded with `*/.cargo/config` in the .gitignore
+#
+# For SSE2, the C target flag isn't required for the code to work, but it can 
+# prevent the other instruction sets from being used instead
 
 [build]
 #rustflags = "--cfg chacha20_force_avx2 -C target-feature=+avx2"
-#rustflags = "--cfg chacha20_force_sse2" # untested
+#rustflags = "--cfg chacha20_force_sse2 -C target-feature=+sse2,-sse4.1,-sse4.2"
 #rustflags = "--cfg chacha20_force_neon"
 rustflags = "--cfg chacha20_force_soft"

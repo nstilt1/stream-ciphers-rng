@@ -23,7 +23,7 @@ pub trait Variant: Clone {
     /// Takes a &[u32; 2] and converts it into the Self::Counter type.
     /// The input is [state[12], state[13]]
     fn get_pos_helper(vals: &[u32]) -> Self::Counter;
-    /// Breaks down the Self::Counter type into a u32 array for setting the 
+    /// Breaks down the Self::Counter type into a u32 array for setting the
     /// block pos.
     fn set_pos_helper(val: Self::Counter) -> Self::CounterVals;
     /// A helper method for calculating the remaining blocks using these types
@@ -73,7 +73,7 @@ impl Variant for Legacy {
     fn get_pos_helper(vals: &[u32]) -> Self::Counter {
         (vals[0] as u64) | (vals[1] as u64) << 32
     }
-    /// Breaks down the Self::Counter type into a u32 array for setting the 
+    /// Breaks down the Self::Counter type into a u32 array for setting the
     /// block pos.
     fn set_pos_helper(u64: Self::Counter) -> Self::CounterVals {
         [u64 as u32, (u64 >> 32) as u32]

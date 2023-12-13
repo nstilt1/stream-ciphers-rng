@@ -3,7 +3,7 @@
 //! Adapted from the Crypto++ `chacha_simd` implementation by Jack Lloyd and
 //! Jeffrey Walton (public domain).
 
-use crate::{ChaChaCore, Rounds, variants::Variant, STATE_WORDS};
+use crate::{variants::Variant, ChaChaCore, Rounds, STATE_WORDS};
 use core::{arch::aarch64::*, marker::PhantomData};
 
 #[cfg(feature = "cipher")]
@@ -17,7 +17,7 @@ use cipher::{
 struct Backend<R: Rounds, V: Variant> {
     state: [uint32x4_t; 4],
     _pd: PhantomData<R>,
-    variant: PhantomData<V>
+    variant: PhantomData<V>,
 }
 #[cfg(feature = "cipher")]
 impl<R: Rounds, V: Variant> BlockSizeUser for Backend<R, V> {
@@ -35,7 +35,7 @@ pub(crate) unsafe fn inner<R, F, V>(state: &mut [u32; STATE_WORDS], f: F)
 where
     R: Rounds,
     F: StreamClosure<BlockSize = U64>,
-    V: Variant
+    V: Variant,
 {
     let mut backend = Backend::<R, V> {
         state: [
@@ -45,17 +45,20 @@ where
             vld1q_u32(state.as_ptr().offset(12)),
         ],
         _pd: PhantomData,
-        variant: PhantomData
+        variant: PhantomData,
     };
 
     f.call(&mut backend);
-    
+
     if V::IS_32_BIT_COUNTER {
         // handle 32-bit counter
         vst1q_u32(state.as_mut_ptr().offset(12), backend.state[3]);
-    }else{
+    } else {
         // handle 64-bit counter
-        vst1q_u64(state.as_mut_ptr().offset(12) as *mut u64, vreinterpretq_u64_u32(backend.state[3]));
+        vst1q_u64(
+            state.as_mut_ptr().offset(12) as *mut u64,
+            vreinterpretq_u64_u32(backend.state[3]),
+        );
     }
 }
 
@@ -79,8 +82,11 @@ impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
         unsafe {
             if V::IS_32_BIT_COUNTER {
                 self.state[3] = add64!(state3, vld1q_u32([1, 0, 0, 0].as_ptr()));
-            }else{
-                self.state[3] = vreinterpretq_u32_u64(vaddq_u64(vreinterpretq_u64_u32(state3), vld1q_u64([1, 0].as_ptr())));
+            } else {
+                self.state[3] = vreinterpretq_u32_u64(vaddq_u64(
+                    vreinterpretq_u64_u32(state3),
+                    vld1q_u64([1, 0].as_ptr()),
+                ));
             }
         }
     }
@@ -109,17 +115,21 @@ impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
         }
 
         unsafe {
-            let ctrs = if V::IS_32_BIT_COUNTER{[
-                vld1q_u32([1, 0, 0, 0].as_ptr()),
-                vld1q_u32([2, 0, 0, 0].as_ptr()),
-                vld1q_u32([3, 0, 0, 0].as_ptr()),
-                vld1q_u32([4, 0, 0, 0].as_ptr()),
-            ]}else{[
-                vreinterpretq_u32_u64(vld1q_u64([1, 0].as_ptr())),
-                vreinterpretq_u32_u64(vld1q_u64([2, 0].as_ptr())),
-                vreinterpretq_u32_u64(vld1q_u64([3, 0].as_ptr())),
-                vreinterpretq_u32_u64(vld1q_u64([4, 0].as_ptr())),
-            ]};
+            let ctrs = if V::IS_32_BIT_COUNTER {
+                [
+                    vld1q_u32([1, 0, 0, 0].as_ptr()),
+                    vld1q_u32([2, 0, 0, 0].as_ptr()),
+                    vld1q_u32([3, 0, 0, 0].as_ptr()),
+                    vld1q_u32([4, 0, 0, 0].as_ptr()),
+                ]
+            } else {
+                [
+                    vreinterpretq_u32_u64(vld1q_u64([1, 0].as_ptr())),
+                    vreinterpretq_u32_u64(vld1q_u64([2, 0].as_ptr())),
+                    vreinterpretq_u32_u64(vld1q_u64([3, 0].as_ptr())),
+                    vreinterpretq_u32_u64(vld1q_u64([4, 0].as_ptr())),
+                ]
+            };
 
             let mut r0_0 = self.state[0];
             let mut r0_1 = self.state[1];
@@ -131,8 +141,11 @@ impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
             let mut r1_2 = self.state[2];
             let mut r1_3 = if V::IS_32_BIT_COUNTER {
                 add64!(r0_3, ctrs[0])
-            }else{
-                vreinterpretq_u32_u64(vaddq_u64(vreinterpretq_u64_u32(r0_3), vreinterpretq_u64_u32(ctrs[0])))
+            } else {
+                vreinterpretq_u32_u64(vaddq_u64(
+                    vreinterpretq_u64_u32(r0_3),
+                    vreinterpretq_u64_u32(ctrs[0]),
+                ))
             };
 
             let mut r2_0 = self.state[0];
@@ -140,8 +153,11 @@ impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
             let mut r2_2 = self.state[2];
             let mut r2_3 = if V::IS_32_BIT_COUNTER {
                 add64!(r0_3, ctrs[1])
-            }else{
-                vreinterpretq_u32_u64(vaddq_u64(vreinterpretq_u64_u32(r0_3), vreinterpretq_u64_u32(ctrs[1])))
+            } else {
+                vreinterpretq_u32_u64(vaddq_u64(
+                    vreinterpretq_u64_u32(r0_3),
+                    vreinterpretq_u64_u32(ctrs[1]),
+                ))
             };
 
             let mut r3_0 = self.state[0];
@@ -149,8 +165,11 @@ impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
             let mut r3_2 = self.state[2];
             let mut r3_3 = if V::IS_32_BIT_COUNTER {
                 add64!(r0_3, ctrs[2])
-            }else{
-                vreinterpretq_u32_u64(vaddq_u64(vreinterpretq_u64_u32(r0_3), vreinterpretq_u64_u32(ctrs[2])))
+            } else {
+                vreinterpretq_u32_u64(vaddq_u64(
+                    vreinterpretq_u64_u32(r0_3),
+                    vreinterpretq_u64_u32(ctrs[2]),
+                ))
             };
 
             for _ in 0..R::COUNT {
@@ -318,8 +337,11 @@ impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
             r1_3 = vaddq_u32(r1_3, self.state[3]);
             r1_3 = if V::IS_32_BIT_COUNTER {
                 add64!(r1_3, ctrs[0])
-            }else{
-                vreinterpretq_u32_u64(vaddq_u64(vreinterpretq_u64_u32(r1_3), vreinterpretq_u64_u32(ctrs[0])))
+            } else {
+                vreinterpretq_u32_u64(vaddq_u64(
+                    vreinterpretq_u64_u32(r1_3),
+                    vreinterpretq_u64_u32(ctrs[0]),
+                ))
             };
 
             r2_0 = vaddq_u32(r2_0, self.state[0]);
@@ -328,8 +350,11 @@ impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
             r2_3 = vaddq_u32(r2_3, self.state[3]);
             r2_3 = if V::IS_32_BIT_COUNTER {
                 add64!(r2_3, ctrs[1])
-            }else{
-                vreinterpretq_u32_u64(vaddq_u64(vreinterpretq_u64_u32(r2_3), vreinterpretq_u64_u32(ctrs[2])))
+            } else {
+                vreinterpretq_u32_u64(vaddq_u64(
+                    vreinterpretq_u64_u32(r2_3),
+                    vreinterpretq_u64_u32(ctrs[2]),
+                ))
             };
 
             r3_0 = vaddq_u32(r3_0, self.state[0]);
@@ -338,8 +363,11 @@ impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
             r3_3 = vaddq_u32(r3_3, self.state[3]);
             r3_3 = if V::IS_32_BIT_COUNTER {
                 add64!(r3_3, ctrs[2])
-            }else{
-                vreinterpretq_u32_u64(vaddq_u64(vreinterpretq_u64_u32(r3_3), vreinterpretq_u64_u32(ctrs[2])))
+            } else {
+                vreinterpretq_u32_u64(vaddq_u64(
+                    vreinterpretq_u64_u32(r3_3),
+                    vreinterpretq_u64_u32(ctrs[2]),
+                ))
             };
 
             vst1q_u8(blocks[0].as_mut_ptr().offset(0), vreinterpretq_u8_u32(r0_0));
@@ -400,8 +428,11 @@ impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
 
             if V::IS_32_BIT_COUNTER {
                 self.state[3] = add64!(self.state[3], ctrs[3]);
-            }else{
-                self.state[3] = vreinterpretq_u32_u64(vaddq_u64(vreinterpretq_u64_u32(self.state[3]), vreinterpretq_u64_u32(ctrs[3])));
+            } else {
+                self.state[3] = vreinterpretq_u32_u64(vaddq_u64(
+                    vreinterpretq_u64_u32(self.state[3]),
+                    vreinterpretq_u64_u32(ctrs[3]),
+                ));
             }
         }
     }
@@ -426,14 +457,14 @@ where
             vld1q_u32(core.state.as_ptr().offset(12)),
         ],
         _pd: PhantomData,
-        variant: PhantomData
+        variant: PhantomData,
     };
 
     backend.rng_gen_par_ks_blocks(dest);
 
     if V::IS_U32 {
         vst1q_u32(core.state.as_mut_ptr().offset(12), backend.state[3]);
-    }else{
+    } else {
         vst1q_u64(core.state.as_mut_ptr().offset(12), backend.state[3]);
     }
 }
