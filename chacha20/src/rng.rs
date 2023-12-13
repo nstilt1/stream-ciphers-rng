@@ -21,7 +21,8 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::{
     variants::{Ietf, Variant},
-    ChaChaCore, R12, R20, R8,
+    ChaChaCore, 
+    rounds::{R12, R20, R8}
 };
 
 // NB. this must remain consistent with some currently hard-coded numbers in this module

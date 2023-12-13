@@ -6,7 +6,10 @@ use cipher::{
     IvSizeUser, KeyIvInit, KeySizeUser, StreamCipherCoreWrapper,
 };
 
-use crate::{variants::XChaChaVariant, ChaChaCore, Rounds, CONSTANTS, R12, R20, R8, STATE_WORDS};
+use crate::{
+    variants::XChaChaVariant, ChaChaCore, Rounds, CONSTANTS, STATE_WORDS,
+    rounds::{R12, R20, R8}
+};
 
 /// Key type used by all ChaCha variants.
 pub type Key = GenericArray<u8, U32>;
@@ -132,7 +135,7 @@ fn quarter_round(a: usize, b: usize, c: usize, d: usize, state: &mut [u32; STATE
 
 #[cfg(test)]
 mod hchacha20_tests {
-    use crate::R20;
+    use crate::rounds::R20;
 
     use super::*;
     use hex_literal::hex;
