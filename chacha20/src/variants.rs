@@ -10,8 +10,6 @@ pub trait VariantCounter {}
 
 /// A trait that distinguishes some ChaCha variants
 pub trait Variant: Clone {
-    /// the type used for the variant's nonce
-    type Nonce: AsRef<[u8]>;
     /// the size of the Nonce in u32s
     const NONCE_INDEX: usize;
     /// the counter's type
@@ -38,7 +36,6 @@ pub struct Ietf();
 impl Variant for Ietf {
     type Counter = u32;
     const IS_32_BIT_COUNTER: bool = true;
-    type Nonce = [u8; 12];
     const NONCE_INDEX: usize = 13;
     type CounterVals = [u32; 1];
 
@@ -64,7 +61,6 @@ impl VariantCounter for u64 {}
 impl Variant for Legacy {
     type Counter = u64;
     const IS_32_BIT_COUNTER: bool = false;
-    type Nonce = crate::legacy::LegacyNonce;
     const NONCE_INDEX: usize = 14;
     type CounterVals = [u32; 2];
 
@@ -96,7 +92,6 @@ pub struct XChaChaVariant {}
 #[cfg(feature = "xchacha")]
 impl Variant for XChaChaVariant {
     type Counter = u32;
-    type Nonce = [u8; 12];
     const IS_32_BIT_COUNTER: bool = true;
     const NONCE_INDEX: usize = 13;
     type CounterVals = [u32; 1];

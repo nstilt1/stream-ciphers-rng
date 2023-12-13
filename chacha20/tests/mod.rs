@@ -1,5 +1,5 @@
 //! Tests for ChaCha20 (IETF and "djb" versions) as well as XChaCha20
-#[cfg(feature = "chacha20")]
+#[cfg(feature = "cipher")]
 use chacha20::ChaCha20;
 
 //#[cfg(feature = "legacy")]
@@ -9,17 +9,17 @@ use chacha20::ChaCha20;
 use chacha20::XChaCha20;
 
 // IETF version of ChaCha20 (96-bit nonce)
-#[cfg(feature = "chacha")]
+#[cfg(feature = "cipher")]
 cipher::stream_cipher_test!(chacha20_core, "chacha20", ChaCha20);
-#[cfg(feature = "chacha")]
+#[cfg(feature = "cipher")]
 cipher::stream_cipher_seek_test!(chacha20_seek, ChaCha20);
 #[cfg(feature = "xchacha")]
 cipher::stream_cipher_seek_test!(xchacha20_seek, XChaCha20);
 #[cfg(feature = "legacy")]
 //cipher::stream_cipher_seek_test!(chacha20legacy_seek, ChaCha20Legacy);
-#[cfg(feature = "chacha")]
+#[cfg(feature = "cipher")]
 mod chacha20test {
-    use chacha20::{ChaCha20, Key, Nonce};
+    use chacha20::{ChaCha20, Key};
     use cipher::{KeyIvInit, StreamCipher};
     use hex_literal::hex;
 
@@ -70,7 +70,7 @@ mod chacha20test {
 
     #[test]
     fn chacha20_keystream() {
-        let mut cipher = ChaCha20::new(&Key::from(KEY), &Nonce::from(IV));
+        let mut cipher = ChaCha20::new(&Key::from(KEY), &IV.into());
 
         // The test vectors omit the first 64-bytes of the keystream
         let mut prefix = [0u8; 64];
@@ -83,7 +83,7 @@ mod chacha20test {
 
     #[test]
     fn chacha20_encryption() {
-        let mut cipher = ChaCha20::new(&Key::from(KEY), &Nonce::from(IV));
+        let mut cipher = ChaCha20::new(&Key::from(KEY), &IV.into());
         let mut buf = PLAINTEXT;
 
         // The test vectors omit the first 64-bytes of the keystream
@@ -256,7 +256,8 @@ mod legacy {
 
         // test overflow of state[12]
         // get the block pos equal to 2^32 - 1
-        const SEEK_TEST: u128 = (1 << (32+6)) - 64;
+        const BLOCK_LOG2: u32 = (64 as u32).ilog2();
+        const SEEK_TEST: u128 = (1 << (32 + BLOCK_LOG2)) - 64;
         cipher.seek(SEEK_TEST);
         assert_eq!(cipher.get_core().get_block_pos(), u32::MAX as u64);
         og_cipher.seek(SEEK_TEST);
@@ -271,7 +272,7 @@ mod legacy {
         assert!(cipher.get_core().get_block_pos() > u32::MAX as u64, "block_pos was less than u32::MAX");
 
         // test StreamCipherError
-        let max_block: u128 = (1 << (64+6)) - 127;
+        let max_block: u128 = (1 << (64 + BLOCK_LOG2)) - 127;
         cipher.seek(max_block);
         og_cipher.seek(max_block);
         assert_eq!(cipher.get_core().get_block_pos(), u64::MAX);

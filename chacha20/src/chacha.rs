@@ -5,8 +5,9 @@ use cipher::{
     IvSizeUser, KeySizeUser, StreamCipherCoreWrapper,
 };
 
-use crate::{ChaChaCore, Ietf, Rounds, 
-    rounds::{R12, R20, R8}
+use crate::{
+    rounds::{R12, R20, R8},
+    ChaChaCore, Ietf, Rounds,
 };
 
 /// Key type used by all ChaCha variants.

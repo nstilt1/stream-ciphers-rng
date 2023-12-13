@@ -116,10 +116,10 @@ impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
 
         unsafe {
             let ctrs = [
-                    vld1q_u32([1, 0, 0, 0].as_ptr()),
-                    vld1q_u32([2, 0, 0, 0].as_ptr()),
-                    vld1q_u32([3, 0, 0, 0].as_ptr()),
-                    vld1q_u32([4, 0, 0, 0].as_ptr())
+                vld1q_u32([1, 0, 0, 0].as_ptr()),
+                vld1q_u32([2, 0, 0, 0].as_ptr()),
+                vld1q_u32([3, 0, 0, 0].as_ptr()),
+                vld1q_u32([4, 0, 0, 0].as_ptr()),
             ];
 
             let mut r0_0 = self.state[0];
@@ -375,7 +375,7 @@ impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
                 vreinterpretq_u8_u32(r3_3),
             );
 
-            self.state[3] = add64!(self.state[3], ctrs[3]);;
+            self.state[3] = add64!(self.state[3], ctrs[3]);
         }
     }
 }

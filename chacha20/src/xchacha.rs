@@ -7,8 +7,9 @@ use cipher::{
 };
 
 use crate::{
-    variants::XChaChaVariant, ChaChaCore, Rounds, CONSTANTS, STATE_WORDS,
-    rounds::{R12, R20, R8}
+    rounds::{R12, R20, R8},
+    variants::XChaChaVariant,
+    ChaChaCore, Rounds, CONSTANTS, STATE_WORDS,
 };
 
 /// Key type used by all ChaCha variants.
