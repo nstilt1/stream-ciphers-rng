@@ -52,7 +52,7 @@ where
     f.call(&mut backend);
 
     state[12] = _mm_cvtsi128_si32(backend.v[3]) as u32;
-    if V::IS_U32 {
+    if !V::IS_U32 {
         state[13] = _mm_extract_epi32(backend.v[3], 1) as u32;
     }
 }

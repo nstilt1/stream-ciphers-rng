@@ -265,11 +265,12 @@ mod legacy {
         og_cipher.seek(SEEK_TEST);
 
         // test apply_keystream past the 32-bit threshhold
-        let mut test_block = [63u8; 65];
+        let mut test_block = [63u8; 66];
         let mut expected = test_block.clone();
         cipher.apply_keystream(&mut test_block);
         og_cipher.apply_keystream(&mut expected);
         assert_eq!(test_block, expected);
+        // the following assert might not work with an exact value due to SIMD backends
         assert!(cipher.get_core().get_block_pos() > u32::MAX as u64, "block_pos was less than u32::MAX");
 
         // test StreamCipherError
