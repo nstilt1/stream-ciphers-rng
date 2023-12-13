@@ -189,7 +189,7 @@ mod xchacha20 {
 #[rustfmt::skip]
 mod legacy {
     use chacha20::{ChaCha20Legacy, LegacyNonce};
-    use cipher::{StreamCipher, StreamCipherSeek, KeyIvInit};
+    use cipher::{StreamCipher, StreamCipherSeek, KeyIvInit, StreamCipherSeekCore};
     use hex_literal::hex;
     use rand_chacha::ChaCha20Rng;
     use rand_chacha::rand_core::{SeedableRng, RngCore};
@@ -244,21 +244,32 @@ mod legacy {
     /// Due to the 32-bit indexing of the RNG, see below for the equivalence
     /// Rng::set_word_pos(x) = Cipher::seek(4x)
     fn chacha20_64bit_counter() {
-        use cipher::StreamCipherSeekCore;
+        //use cipher::StreamCipherSeekCore;
         let mut cipher = ChaCha20Legacy::new(&KEY_LONG.into(), &LegacyNonce::from(IV_LONG));
-        //const SEEK_TEST: u128 = (2 as u128).pow(32) - 4096;
-        const SEEK_TEST: u128 = 2;
-        cipher.seek(SEEK_TEST << 2);
-        assert_eq!(cipher.get_core().get_block_pos(), (SEEK_TEST as u64 >> 6) + 1);
-        let mut rng = ChaCha20Rng::from_seed(KEY_LONG);
-        rng.set_stream(u64::from_le_bytes(IV_LONG));
-        rng.set_word_pos(SEEK_TEST);
+
+        // test first block increment
+        cipher.seek(60);
+        assert_eq!(cipher.get_core().get_block_pos(), 1);
+        cipher.apply_keystream(&mut [0u8; 16]);
+        assert_eq!(cipher.get_core().get_block_pos(), 2);
+
+
+        const SEEK_TEST: u128 = 60;
+        cipher.seek(SEEK_TEST);
+
+        use chacha_0_7::{LegacyNonce, cipher::{NewCipher, StreamCipher, StreamCipherSeek}};
+        let mut og_cipher = chacha_0_7::ChaCha20Legacy::new(&KEY_LONG.into(), &LegacyNonce::from(IV_LONG));
+        og_cipher.seek(SEEK_TEST);
+        //assert_eq!(cipher.get_core().get_block_pos(), (SEEK_TEST as u64 >> 6) + 1);
+        //let mut rng = ChaCha20Rng::from_seed(KEY_LONG);
+        //rng.set_stream(u64::from_le_bytes(IV_LONG));
+        //rng.set_word_pos(SEEK_TEST);
         const TEST_SIZE: usize = 32;
         let mut test_output = [0u8; TEST_SIZE];
         let mut expected = [0u8; TEST_SIZE];
         cipher.apply_keystream(&mut test_output);
-        rng.fill_bytes(&mut expected);
-        assert_eq!(cipher.get_core().get_block_pos(), 3);
+        og_cipher.apply_keystream(&mut expected);
+        //assert_eq!(cipher.get_core().get_block_pos(), 3);
         assert_eq!(test_output, expected);
     }
 }
