@@ -28,7 +28,7 @@ impl<'a, R: Rounds, V: Variant> StreamBackend for Backend<'a, R, V> {
         let res = run_rounds::<R>(&self.0.state);
 
         // increment counter
-        if V::IS_U32 {
+        if V::IS_32_BIT_COUNTER {
             self.0.state[12] = self.0.state[12].wrapping_add(1);
         }else{
             // check if there is overflow and handle it
@@ -58,7 +58,7 @@ impl<'a, R: Rounds, V: Variant> Backend<'a, R, V> {
                 let res = run_rounds::<R>(&self.0.state);
 
                 // increment counter
-                if V::IS_U32 {
+                if V::IS_32_BIT_COUNTER {
                     self.0.state[12] = self.0.state[12].wrapping_add(1);
                 }else{
                     // check if there is overflow and handle it

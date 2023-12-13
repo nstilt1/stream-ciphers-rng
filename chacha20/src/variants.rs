@@ -17,7 +17,7 @@ pub trait Variant: Clone {
     /// the counter's type
     type Counter: VariantCounter;
     /// a bool to help with figuring out the size of the Counter
-    const IS_U32: bool;
+    const IS_32_BIT_COUNTER: bool;
     /// The result type of `from_block_counter` to handle either 1 or 2 u32 vals
     type CounterVals: core::ops::Index<usize, Output = u32>;
     /// Takes a &[u32; 2] and converts it into the Self::Counter type.
@@ -37,7 +37,7 @@ impl VariantCounter for u32 {}
 pub struct Ietf();
 impl Variant for Ietf {
     type Counter = u32;
-    const IS_U32: bool = true;
+    const IS_32_BIT_COUNTER: bool = true;
     type Nonce = [u8; 12];
     const NONCE_INDEX: usize = 13;
     type CounterVals = [u32; 1];
@@ -63,7 +63,7 @@ impl VariantCounter for u64 {}
 #[cfg(feature = "legacy")]
 impl Variant for Legacy {
     type Counter = u64;
-    const IS_U32: bool = false;
+    const IS_32_BIT_COUNTER: bool = false;
     type Nonce = crate::legacy::LegacyNonce;
     const NONCE_INDEX: usize = 14;
     type CounterVals = [u32; 2];
@@ -97,7 +97,7 @@ pub struct XChaChaVariant {}
 impl Variant for XChaChaVariant {
     type Counter = u32;
     type Nonce = [u8; 12];
-    const IS_U32: bool = true;
+    const IS_32_BIT_COUNTER: bool = true;
     const NONCE_INDEX: usize = 13;
     type CounterVals = [u32; 1];
     fn get_pos_helper(vals: &[u32]) -> Self::Counter {

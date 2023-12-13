@@ -321,7 +321,7 @@ impl<R: Rounds, V: Variant> StreamCipherSeekCore for ChaChaCore<R, V> {
         // seems like we have to cast a spell to do anything with this type
         let result = V::set_pos_helper(pos);
         self.state[12] = result[0];
-        if !V::IS_U32 {
+        if !V::IS_32_BIT_COUNTER {
             self.state[13] = result[1];
         }
     }
