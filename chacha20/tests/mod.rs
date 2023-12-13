@@ -238,38 +238,60 @@ mod legacy {
     }
 
     #[test]
-    /// v0.3.1 of rand_chacha::ChaCha20Rng uses a 64-bit counter, so it should 
-    /// work when testing the keystream of ChaCha20Legacy with a 64-bit counter.
-    /// 
-    /// Due to the 32-bit indexing of the RNG, see below for the equivalence
-    /// Rng::set_word_pos(x) = Cipher::seek(4x)
+    // Various tests for the 64-bit counter version of ChaCha20Legacy
+    // These tests use ChaCha20 v0.7.0
     fn chacha20_64bit_counter() {
-        //use cipher::StreamCipherSeekCore;
-        let mut cipher = ChaCha20Legacy::new(&KEY_LONG.into(), &LegacyNonce::from(IV_LONG));
-
-        // test first block increment
-        cipher.seek(60);
-        assert_eq!(cipher.get_core().get_block_pos(), 1);
-        cipher.apply_keystream(&mut [0u8; 16]);
-        assert_eq!(cipher.get_core().get_block_pos(), 2);
-
-
-        const SEEK_TEST: u128 = 60;
-        cipher.seek(SEEK_TEST);
-
         use chacha_0_7::{LegacyNonce, cipher::{NewCipher, StreamCipher, StreamCipherSeek}};
+
+        let mut cipher = ChaCha20Legacy::new(&KEY_LONG.into(), &LegacyNonce::from(IV_LONG));
         let mut og_cipher = chacha_0_7::ChaCha20Legacy::new(&KEY_LONG.into(), &LegacyNonce::from(IV_LONG));
-        og_cipher.seek(SEEK_TEST);
-        //assert_eq!(cipher.get_core().get_block_pos(), (SEEK_TEST as u64 >> 6) + 1);
-        //let mut rng = ChaCha20Rng::from_seed(KEY_LONG);
-        //rng.set_stream(u64::from_le_bytes(IV_LONG));
-        //rng.set_word_pos(SEEK_TEST);
-        const TEST_SIZE: usize = 32;
-        let mut test_output = [0u8; TEST_SIZE];
-        let mut expected = [0u8; TEST_SIZE];
-        cipher.apply_keystream(&mut test_output);
+
+        // test first block increments
+        cipher.seek(60);
+        og_cipher.seek(60);
+        assert_eq!(cipher.get_core().get_block_pos(), 1);
+        let mut test_block = [35u8; 15];
+        let mut expected = test_block.clone();
+        cipher.apply_keystream(&mut test_block);
         og_cipher.apply_keystream(&mut expected);
-        //assert_eq!(cipher.get_core().get_block_pos(), 3);
-        assert_eq!(test_output, expected);
+        assert_eq!(cipher.get_core().get_block_pos(), 2);
+        assert_eq!(test_block, expected);
+
+        // test overflow of state[12]
+        // get the block pos equal to 2^32 - 1
+        const SEEK_TEST: u128 = (1 << (32+6)) - 64;
+        cipher.seek(SEEK_TEST);
+        assert_eq!(cipher.get_core().get_block_pos(), u32::MAX as u64);
+        og_cipher.seek(SEEK_TEST);
+
+        // test apply_keystream past the 32-bit threshhold
+        let mut test_block = [63u8; 65];
+        let mut expected = test_block.clone();
+        cipher.apply_keystream(&mut test_block);
+        og_cipher.apply_keystream(&mut expected);
+        assert_eq!(test_block, expected);
+        assert!(cipher.get_core().get_block_pos() > u32::MAX as u64, "block_pos was less than u32::MAX");
+
+        // test StreamCipherError
+        let max_block: u128 = (1 << (64+6)) - 127;
+        cipher.seek(max_block);
+        og_cipher.seek(max_block);
+        assert_eq!(cipher.get_core().get_block_pos(), u64::MAX);
+        let mut test_block = [2u8; 63];
+        let mut expected = test_block.clone();
+        cipher.apply_keystream(&mut test_block);
+        og_cipher.apply_keystream(&mut expected);
+        assert_eq!(test_block, expected);
+        
+        // One of Chat GPT's ways of testing panics
+        let result = {
+            let _wrapper = std::panic::AssertUnwindSafe(&mut cipher);
+            std::panic::catch_unwind(move || {
+                cipher.apply_keystream(&mut [0u8; 5]);
+            })
+        };
+        assert!(result.is_err(), "For some reason, `apply_keystream()` didn't panic after reaching the end of the keystream. 
+                                This could be caused if `remaining_blocks()` didn't return the correct value, or if 
+                                `cipher` has been changed to allow repeating keystreams.");
     }
 }

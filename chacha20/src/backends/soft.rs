@@ -61,12 +61,13 @@ impl<'a, R: Rounds, V: Variant> Backend<'a, R, V> {
                 if V::IS_U32 {
                     self.0.state[12] = self.0.state[12].wrapping_add(1);
                 }else{
-                    let no_overflow = self.0.state[13].checked_add(1);
-                    if no_overflow.as_ref().is_some() {
-                        self.0.state[13] = no_overflow.unwrap();
+                    // check if there is overflow and handle it
+                    let successful_add = self.0.state[12].checked_add(1);
+                    if successful_add.as_ref().is_some() {
+                        self.0.state[12] = successful_add.unwrap();
                     }else{
-                        self.0.state[12] = self.0.state[12].wrapping_add(1);
-                        self.0.state[13] = 0;
+                        self.0.state[12] = 0;
+                        self.0.state[13] = self.0.state[12].wrapping_add(1);
                     }
                 }
 
