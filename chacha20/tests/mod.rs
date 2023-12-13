@@ -190,8 +190,6 @@ mod legacy {
     use chacha20::{ChaCha20Legacy, LegacyNonce};
     use cipher::{StreamCipher, StreamCipherSeek, KeyIvInit, StreamCipherSeekCore};
     use hex_literal::hex;
-    use rand_chacha::ChaCha20Rng;
-    use rand_chacha::rand_core::{SeedableRng, RngCore};
 
     //cipher::stream_cipher_test!(chacha20_legacy_core, "chacha20-legacy", ChaCha20Legacy);
     //cipher::stream_cipher_seek_test!(chacha20_legacy_seek, ChaCha20Legacy);
