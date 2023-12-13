@@ -1,7 +1,7 @@
 //! Legacy version of ChaCha20 with a 64-bit nonce
 
 use crate::chacha::Key;
-use crate::{ChaChaCore, R20};
+use crate::{rounds::R20, ChaChaCore};
 use cipher::{
     consts::{U32, U8},
     generic_array::GenericArray,

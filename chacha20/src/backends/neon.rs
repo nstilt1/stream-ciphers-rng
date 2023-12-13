@@ -3,7 +3,7 @@
 //! Adapted from the Crypto++ `chacha_simd` implementation by Jack Lloyd and
 //! Jeffrey Walton (public domain).
 
-use crate::{ChaChaCore, Rounds, variants::Variant, STATE_WORDS};
+use crate::{variants::Variant, ChaChaCore, Rounds, STATE_WORDS};
 use core::{arch::aarch64::*, marker::PhantomData};
 
 #[cfg(feature = "cipher")]
@@ -14,28 +14,30 @@ use cipher::{
     BlockSizeUser, ParBlocks, ParBlocksSizeUser, StreamBackend, StreamClosure,
 };
 
-struct Backend<R: Rounds> {
+struct Backend<R: Rounds, V: Variant> {
     state: [uint32x4_t; 4],
     _pd: PhantomData<R>,
+    variant: PhantomData<V>,
 }
 #[cfg(feature = "cipher")]
-impl<R: Rounds> BlockSizeUser for Backend<R> {
+impl<R: Rounds, V: Variant> BlockSizeUser for Backend<R, V> {
     type BlockSize = U64;
 }
 #[cfg(feature = "cipher")]
-impl<R: Rounds> ParBlocksSizeUser for Backend<R> {
+impl<R: Rounds, V: Variant> ParBlocksSizeUser for Backend<R, V> {
     type ParBlocksSize = U4;
 }
 
 #[inline]
 #[cfg(feature = "cipher")]
 #[target_feature(enable = "neon")]
-pub(crate) unsafe fn inner<R, F>(state: &mut [u32; STATE_WORDS], f: F)
+pub(crate) unsafe fn inner<R, F, V>(state: &mut [u32; STATE_WORDS], f: F)
 where
     R: Rounds,
     F: StreamClosure<BlockSize = U64>,
+    V: Variant,
 {
-    let mut backend = Backend::<R> {
+    let mut backend = Backend::<R, V> {
         state: [
             vld1q_u32(state.as_ptr().offset(0)),
             vld1q_u32(state.as_ptr().offset(4)),
@@ -43,11 +45,21 @@ where
             vld1q_u32(state.as_ptr().offset(12)),
         ],
         _pd: PhantomData,
+        variant: PhantomData,
     };
 
     f.call(&mut backend);
 
-    vst1q_u32(state.as_mut_ptr().offset(12), backend.state[3]);
+    if V::IS_32_BIT_COUNTER {
+        // handle 32-bit counter
+        vst1q_u32(state.as_mut_ptr().offset(12), backend.state[3]);
+    } else {
+        // handle 64-bit counter
+        vst1q_u64(
+            state.as_mut_ptr().offset(12) as *mut u64,
+            vreinterpretq_u64_u32(backend.state[3]),
+        );
+    }
 }
 
 macro_rules! add64 {
@@ -60,7 +72,7 @@ macro_rules! add64 {
 }
 
 #[cfg(feature = "cipher")]
-impl<R: Rounds> StreamBackend for Backend<R> {
+impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
     #[inline(always)]
     fn gen_ks_block(&mut self, block: &mut Block) {
         let state3 = self.state[3];
@@ -68,7 +80,14 @@ impl<R: Rounds> StreamBackend for Backend<R> {
         self.gen_par_ks_blocks(&mut par);
         *block = par[0];
         unsafe {
-            self.state[3] = add64!(state3, vld1q_u32([1, 0, 0, 0].as_ptr()));
+            if V::IS_32_BIT_COUNTER {
+                self.state[3] = add64!(state3, vld1q_u32([1, 0, 0, 0].as_ptr()));
+            } else {
+                self.state[3] = vreinterpretq_u32_u64(vaddq_u64(
+                    vreinterpretq_u64_u32(state3),
+                    vld1q_u64([1, 0].as_ptr()),
+                ));
+            }
         }
     }
 
@@ -380,15 +399,20 @@ where
             vld1q_u32(core.state.as_ptr().offset(12)),
         ],
         _pd: PhantomData,
+        variant: PhantomData,
     };
 
     backend.rng_gen_par_ks_blocks(dest);
 
-    vst1q_u32(core.state.as_mut_ptr().offset(12), backend.state[3]);
+    if V::IS_U32 {
+        vst1q_u32(core.state.as_mut_ptr().offset(12), backend.state[3]);
+    } else {
+        vst1q_u64(core.state.as_mut_ptr().offset(12), backend.state[3]);
+    }
 }
 
 #[cfg(feature = "rand_core")]
-impl<R: Rounds> Backend<R> {
+impl<R: Rounds, V: Variant> Backend<R, V> {
     #[inline(always)]
     /// This is essentially the same as the `gen_par_ks_blocks` method except
     /// it takes a pointer instead.

@@ -6,9 +6,6 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// This was commented out due to using pointers
-//#![cfg_attr(not(test), forbid(unsafe_code))]
-
 use core::fmt::Debug;
 
 use rand_core::{impls::fill_via_u32_chunks, CryptoRng, Error, RngCore, SeedableRng};
@@ -19,7 +16,11 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[cfg(feature = "zeroize")]
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-use crate::{ChaChaCore, R12, R20, R8, variants::{Ietf, Variant}};
+use crate::{
+    rounds::{R12, R20, R8},
+    variants::{Ietf, Variant},
+    ChaChaCore,
+};
 
 // NB. this must remain consistent with some currently hard-coded numbers in this module
 const BUF_BLOCKS: u8 = 4;
@@ -59,39 +60,6 @@ impl Zeroize for BlockRngResults {
     }
 }
 
-// Define macro to automatically zeroize input of `From<x>` without any unused
-// muts when zeroize isn't enabled
-macro_rules! impl_zeroize_from {
-    ($from:ty, $struct:ident) => {
-        impl From<$from> for $struct {
-            #[cfg(feature = "zeroize")]
-            fn from(mut value: $from) -> Self {
-                let input = Self(value);
-                value.zeroize();
-                input
-            }
-            #[cfg(not(feature = "zeroize"))]
-            fn from(value: $from) -> Self {
-                Self(value)
-            }
-        }
-    };
-}
-
-// macro for ZeroizeOnDrop impl for wrappers
-macro_rules! impl_zeroize_on_drop {
-    ($struct:ident) => {
-        #[cfg(feature = "zeroize")]
-        impl Drop for $struct {
-            fn drop(&mut self) {
-                self.0.zeroize();
-            }
-        }
-        #[cfg(feature = "zeroize")]
-        impl ZeroizeOnDrop for $struct {}
-    };
-}
-
 /// The seed for ChaCha20. Implements ZeroizeOnDrop when the
 /// zeroize feature is enabled.
 #[derive(PartialEq, Eq)]
@@ -114,21 +82,32 @@ impl AsMut<[u8]> for Seed {
     }
 }
 
-impl_zeroize_from!([u8; 32], Seed);
+impl From<[u8; 32]> for Seed {
+    #[cfg(feature = "zeroize")]
+    fn from(mut value: [u8; 32]) -> Self {
+        let input = Self(value);
+        value.zeroize();
+        input
+    }
+    #[cfg(not(feature = "zeroize"))]
+    fn from(value: [u8; 32]) -> Self {
+        Self(value)
+    }
+}
+
+#[cfg(feature = "zeroize")]
+impl Drop for Seed {
+    fn drop(&mut self) {
+        self.0.zeroize();
+    }
+}
+#[cfg(feature = "zeroize")]
+impl ZeroizeOnDrop for Seed {}
 
 impl Debug for Seed {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.0.fmt(f)
     }
-}
-
-impl_zeroize_on_drop!(Seed);
-
-/// An internally used trait to help with zeroizing unsigned ints that are primarily
-/// used for le bytes
-trait ZeroizeToLeBytes {
-    type Output;
-    fn zeroize_to_le_bytes(&mut self) -> Self::Output;
 }
 
 /// A zeroizable wrapper for set_word_pos() input that can be assembled from:
@@ -156,7 +135,7 @@ impl From<u64> for WordPosInput {
     }
 }
 
-/// A zeroizing wrapper for the `stream_id`. It can be used with a `[u8; 12]` or
+/// A wrapper for the `stream_id`. It can be used with a `[u8; 12]` or
 /// a `u128`.
 ///
 /// There is a minor performance benefit when using a `[u8; 12]` as the input, as
@@ -164,7 +143,11 @@ impl From<u64> for WordPosInput {
 /// is enabled.
 pub struct StreamId([u8; 12]);
 
-impl_zeroize_from!([u8; 12], StreamId);
+impl From<[u8; 12]> for StreamId {
+    fn from(value: [u8; 12]) -> Self {
+        Self(value)
+    }
+}
 
 impl From<u128> for StreamId {
     fn from(value: u128) -> Self {
@@ -174,7 +157,6 @@ impl From<u128> for StreamId {
         Self(lower_12_bytes)
     }
 }
-impl_zeroize_on_drop!(StreamId);
 
 macro_rules! impl_chacha_rng {
     ($ChaChaXRng:ident, $ChaChaXCore:ident, $rounds:ident, $abst: ident) => {
@@ -226,7 +208,6 @@ macro_rules! impl_chacha_rng {
         /// // performance benefit over a u128
         /// rng.set_stream([3u8; 12]);
         ///
-        ///
         /// rng.set_word_pos(5);
         ///
         /// // you can also use a [u8; 5] in `.set_word_pos()`, which has a *minor*
@@ -236,6 +217,10 @@ macro_rules! impl_chacha_rng {
         /// let x = rng.next_u32();
         /// let mut array = [0u8; 32];
         /// rng.fill_bytes(&mut array);
+        ///
+        /// // if you need to zeroize the internal buffer, you should call
+        /// // `.zeroize` on it with the `zeroize` feature enabled:
+        /// // rng.zeroize();
         /// ```
         ///
         /// The other Rngs from this crate are initialized similarly.
@@ -334,7 +319,6 @@ macro_rules! impl_chacha_rng {
                 // write to all of the full 256-byte chunks by excluding the last 8 bits from the len
                 // for the upper bound index
                 let writable_block_bytes = (dest_len - dest_pos) & !(0xFF);
-                //let (mut chunks, mut tail) = tail.split_at(writable_block_bytes);
 
                 let num_blocks = writable_block_bytes >> 8;
 

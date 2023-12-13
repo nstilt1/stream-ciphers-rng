@@ -6,7 +6,11 @@ use cipher::{
     IvSizeUser, KeyIvInit, KeySizeUser, StreamCipherCoreWrapper,
 };
 
-use crate::{variants::XChaChaVariant, ChaChaCore, Rounds, CONSTANTS, R12, R20, R8, STATE_WORDS};
+use crate::{
+    rounds::{R12, R20, R8},
+    variants::XChaChaVariant,
+    ChaChaCore, Rounds, CONSTANTS, STATE_WORDS,
+};
 
 /// Key type used by all ChaCha variants.
 pub type Key = GenericArray<u8, U32>;
@@ -48,7 +52,7 @@ impl<R: Rounds> KeyIvInit for ChaChaCore<R, XChaChaVariant> {
         let subkey = hchacha::<R>(key, iv[..16].as_ref().into());
 
         let mut nonce = [0u8; 12];
-        // first 4 bytes are 0, last 8 bytes are last 8 from the iv 
+        // first 4 bytes are 0, last 8 bytes are last 8 from the iv
         // according to draft-arciszewski-xchacha-03
         nonce[4..].copy_from_slice(&iv[16..]);
         ChaChaCore::<R, XChaChaVariant>::new(subkey.as_ref(), &nonce)
@@ -132,7 +136,7 @@ fn quarter_round(a: usize, b: usize, c: usize, d: usize, state: &mut [u32; STATE
 
 #[cfg(test)]
 mod hchacha20_tests {
-    use crate::R20;
+    use crate::rounds::R20;
 
     use super::*;
     use hex_literal::hex;

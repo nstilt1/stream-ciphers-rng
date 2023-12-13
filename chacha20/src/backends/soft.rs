@@ -1,7 +1,7 @@
 //! Portable implementation which does not rely on architecture-specific
 //! intrinsics.
 
-use crate::{ChaChaCore, Rounds, variants::Variant, STATE_WORDS};
+use crate::{variants::Variant, ChaChaCore, Rounds, STATE_WORDS};
 
 #[cfg(feature = "cipher")]
 use crate::chacha::Block;
@@ -26,8 +26,22 @@ impl<'a, R: Rounds, V: Variant> StreamBackend for Backend<'a, R, V> {
     #[inline(always)]
     fn gen_ks_block(&mut self, block: &mut Block) {
         let res = run_rounds::<R>(&self.0.state);
-        self.0.state[12] = self.0.state[12].wrapping_add(1);
 
+        // increment counter
+        if V::IS_32_BIT_COUNTER {
+            self.0.state[12] = self.0.state[12].wrapping_add(1);
+        } else {
+            // check if there is overflow and handle it
+            let successful_add = self.0.state[12].checked_add(1);
+            if successful_add.as_ref().is_some() {
+                self.0.state[12] = successful_add.unwrap();
+            } else {
+                self.0.state[12] = 0;
+                self.0.state[13] = self.0.state[12].wrapping_add(1);
+            }
+        }
+
+        // copy results to block
         for (chunk, val) in block.chunks_exact_mut(4).zip(res.iter()) {
             chunk.copy_from_slice(&val.to_le_bytes());
         }
@@ -42,7 +56,20 @@ impl<'a, R: Rounds, V: Variant> Backend<'a, R, V> {
             let mut block_ptr = dest_ptr as *mut u32;
             for _i in 0..4 {
                 let res = run_rounds::<R>(&self.0.state);
-                self.0.state[12] = self.0.state[12].wrapping_add(1);
+
+                // increment counter
+                if V::IS_32_BIT_COUNTER {
+                    self.0.state[12] = self.0.state[12].wrapping_add(1);
+                } else {
+                    // check if there is overflow and handle it
+                    let successful_add = self.0.state[12].checked_add(1);
+                    if successful_add.as_ref().is_some() {
+                        self.0.state[12] = successful_add.unwrap();
+                    } else {
+                        self.0.state[12] = 0;
+                        self.0.state[13] = self.0.state[12].wrapping_add(1);
+                    }
+                }
 
                 for val in res.iter() {
                     block_ptr.write_unaligned(*val);
