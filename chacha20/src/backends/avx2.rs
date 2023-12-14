@@ -1,5 +1,8 @@
-use crate::{Rounds, ChaChaCore, variants::Variant, STATE_WORDS};
+use crate::{Rounds, STATE_WORDS};
 use core::marker::PhantomData;
+
+#[cfg(feature = "rand_core")]
+use crate::{ChaChaCore, variants::Variant};
 
 #[cfg(target_arch = "x86")]
 use core::arch::x86::*;

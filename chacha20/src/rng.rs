@@ -19,7 +19,10 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[cfg(feature = "zeroize")]
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-use crate::{ChaChaCore, R12, R20, R8, variants::{Ietf, Variant}};
+use crate::{
+    variants::{Ietf, Variant},
+    ChaChaCore, R12, R20, R8,
+};
 
 // NB. this must remain consistent with some currently hard-coded numbers in this module
 const BUF_BLOCKS: u8 = 4;
