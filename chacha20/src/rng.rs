@@ -112,13 +112,6 @@ impl Debug for Seed {
     }
 }
 
-/// An internally used trait to help with zeroizing unsigned ints that are primarily
-/// used for le bytes
-trait ZeroizeToLeBytes {
-    type Output;
-    fn zeroize_to_le_bytes(&mut self) -> Self::Output;
-}
-
 /// A wrapper for set_word_pos() input that can be assembled from:
 /// * `u64`
 /// * `[u8; 5]`
