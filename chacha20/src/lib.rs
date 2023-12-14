@@ -42,6 +42,8 @@
 //!
 //! # Example
 //! ```
+//! # #[cfg(feature = "cipher")]
+//! {
 //! use chacha20::ChaCha20;
 //! // Import relevant traits
 //! use chacha20::cipher::{KeyIvInit, StreamCipher, StreamCipherSeek};
@@ -77,6 +79,7 @@
 //!     cipher.apply_keystream(chunk);
 //! }
 //! assert_eq!(buffer, ciphertext);
+//! }
 //! ```
 //!
 //! # Configuration Flags
