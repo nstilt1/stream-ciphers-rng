@@ -1,25 +1,26 @@
 //! Tests for ChaCha20 (IETF and "djb" versions) as well as XChaCha20
-#[cfg(feature = "cipher")]
+#[cfg(feature = "chacha20")]
 use chacha20::ChaCha20;
 
-//#[cfg(feature = "legacy")]
-//use chacha20::ChaCha20Legacy;
+#[cfg(feature = "legacy")]
+use chacha20::ChaCha20Legacy;
 
 #[cfg(feature = "xchacha")]
 use chacha20::XChaCha20;
 
 // IETF version of ChaCha20 (96-bit nonce)
-#[cfg(feature = "cipher")]
+#[cfg(feature = "chacha")]
 cipher::stream_cipher_test!(chacha20_core, "chacha20", ChaCha20);
-#[cfg(feature = "cipher")]
+#[cfg(feature = "chacha")]
 cipher::stream_cipher_seek_test!(chacha20_seek, ChaCha20);
 #[cfg(feature = "xchacha")]
 cipher::stream_cipher_seek_test!(xchacha20_seek, XChaCha20);
 #[cfg(feature = "legacy")]
-//cipher::stream_cipher_seek_test!(chacha20legacy_seek, ChaCha20Legacy);
-#[cfg(feature = "cipher")]
+cipher::stream_cipher_seek_test!(chacha20legacy_seek, ChaCha20Legacy);
+
+#[cfg(feature = "chacha")]
 mod chacha20test {
-    use chacha20::{ChaCha20, Key};
+    use chacha20::{ChaCha20, Key, Nonce};
     use cipher::{KeyIvInit, StreamCipher};
     use hex_literal::hex;
 
@@ -70,7 +71,7 @@ mod chacha20test {
 
     #[test]
     fn chacha20_keystream() {
-        let mut cipher = ChaCha20::new(&Key::from(KEY), &IV.into());
+        let mut cipher = ChaCha20::new(&Key::from(KEY), &Nonce::from(IV));
 
         // The test vectors omit the first 64-bytes of the keystream
         let mut prefix = [0u8; 64];
@@ -83,7 +84,7 @@ mod chacha20test {
 
     #[test]
     fn chacha20_encryption() {
-        let mut cipher = ChaCha20::new(&Key::from(KEY), &IV.into());
+        let mut cipher = ChaCha20::new(&Key::from(KEY), &Nonce::from(IV));
         let mut buf = PLAINTEXT;
 
         // The test vectors omit the first 64-bytes of the keystream
@@ -188,11 +189,11 @@ mod xchacha20 {
 #[rustfmt::skip]
 mod legacy {
     use chacha20::{ChaCha20Legacy, LegacyNonce};
-    use cipher::{StreamCipher, StreamCipherSeek, KeyIvInit, StreamCipherSeekCore};
+    use cipher::{StreamCipher, StreamCipherSeek, KeyIvInit};
     use hex_literal::hex;
 
-    //cipher::stream_cipher_test!(chacha20_legacy_core, "chacha20-legacy", ChaCha20Legacy);
-    //cipher::stream_cipher_seek_test!(chacha20_legacy_seek, ChaCha20Legacy);
+    cipher::stream_cipher_test!(chacha20_legacy_core, "chacha20-legacy", ChaCha20Legacy);
+    cipher::stream_cipher_seek_test!(chacha20_legacy_seek, ChaCha20Legacy);
 
     const KEY_LONG: [u8; 32] = hex!("
         0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20
@@ -219,7 +220,6 @@ mod legacy {
                 for last in middle..256 {
                     let mut cipher =
                         ChaCha20Legacy::new(&KEY_LONG.into(), &LegacyNonce::from(IV_LONG));
-                    
                     let mut buf = [0; 256];
 
                     cipher.seek(idx as u64);
@@ -232,65 +232,5 @@ mod legacy {
                 }
             }
         }
-    }
-
-    #[test]
-    // Various tests for the 64-bit counter version of ChaCha20Legacy
-    // These tests use ChaCha20 v0.7.0
-    fn chacha20_64bit_counter() {
-        use chacha_0_7::{LegacyNonce, cipher::{NewCipher, StreamCipher, StreamCipherSeek}};
-
-        let mut cipher = ChaCha20Legacy::new(&KEY_LONG.into(), &LegacyNonce::from(IV_LONG));
-        let mut og_cipher = chacha_0_7::ChaCha20Legacy::new(&KEY_LONG.into(), &LegacyNonce::from(IV_LONG));
-
-        // test first block increments
-        cipher.seek(60);
-        og_cipher.seek(60);
-        assert_eq!(cipher.get_core().get_block_pos(), 1);
-        let mut test_block = [35u8; 15];
-        let mut expected = test_block.clone();
-        cipher.apply_keystream(&mut test_block);
-        og_cipher.apply_keystream(&mut expected);
-        assert_eq!(cipher.get_core().get_block_pos(), 2);
-        assert_eq!(test_block, expected);
-
-        // test overflow of state[12]
-        // get the block pos equal to 2^32 - 1
-        const BLOCK_LOG2: u32 = (64 as u32).ilog2();
-        const SEEK_TEST: u128 = (1 << (32 + BLOCK_LOG2)) - 64;
-        cipher.seek(SEEK_TEST);
-        assert_eq!(cipher.get_core().get_block_pos(), u32::MAX as u64);
-        og_cipher.seek(SEEK_TEST);
-
-        // test apply_keystream past the 32-bit threshhold
-        let mut test_block = [63u8; 66];
-        let mut expected = test_block.clone();
-        cipher.apply_keystream(&mut test_block);
-        og_cipher.apply_keystream(&mut expected);
-        assert_eq!(test_block, expected);
-        // the following assert might not work with an exact value due to SIMD backends
-        assert!(cipher.get_core().get_block_pos() > u32::MAX as u64, "block_pos was less than u32::MAX");
-
-        // test StreamCipherError
-        let max_block: u128 = (1 << (64 + BLOCK_LOG2)) - 127;
-        cipher.seek(max_block);
-        og_cipher.seek(max_block);
-        assert_eq!(cipher.get_core().get_block_pos(), u64::MAX);
-        let mut test_block = [2u8; 63];
-        let mut expected = test_block.clone();
-        cipher.apply_keystream(&mut test_block);
-        og_cipher.apply_keystream(&mut expected);
-        assert_eq!(test_block, expected);
-        
-        // One of Chat GPT's ways of testing panics
-        let result = {
-            let _wrapper = std::panic::AssertUnwindSafe(&mut cipher);
-            std::panic::catch_unwind(move || {
-                cipher.apply_keystream(&mut [0u8; 5]);
-            })
-        };
-        assert!(result.is_err(), "For some reason, `apply_keystream()` didn't panic after reaching the end of the keystream. 
-                                This could be caused if `remaining_blocks()` didn't return the correct value, or if 
-                                `cipher` has been changed to allow repeating keystreams.");
     }
 }

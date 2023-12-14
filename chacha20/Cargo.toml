@@ -34,7 +34,6 @@ rand_chacha = "0.3.1"
 serde_json = "1.0" # Only to test serde1
 sha2 = "0.10" # For testing fill_bytes()
 sha3 = "0.10" # Also for testing fill_bytes(), but it may be unnecessary
-chacha_0_7 = { package = "chacha20", version = "0.7.0", features = ["legacy"] } # Testing 64-bit counter
 
 [features]
 default = ["cipher"]
