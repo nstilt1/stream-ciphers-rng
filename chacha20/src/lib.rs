@@ -308,22 +308,17 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
 
 #[cfg(feature = "cipher")]
 impl<R: Rounds, V: Variant> StreamCipherSeekCore for ChaChaCore<R, V> {
-    type Counter = V::Counter;
+    type Counter = u32;
 
     #[inline(always)]
     fn get_block_pos(&self) -> Self::Counter {
-        // seems like we have to cast a spell to do anything with this type
-        V::into_block_counter(&self.state[12..14])
+        self.state[12]
     }
 
     #[inline(always)]
     fn set_block_pos(&mut self, pos: Self::Counter) {
         // seems like we have to cast a spell to do anything with this type
-        let result = V::from_block_counter(pos);
-        self.state[12] = result.as_ref()[0];
-        if !V::IS_U32 {
-            self.state[13] = result.as_ref()[1];
-        }
+        self.state[12] = pos
     }
 }
 
@@ -331,7 +326,7 @@ impl<R: Rounds, V: Variant> StreamCipherSeekCore for ChaChaCore<R, V> {
 impl<R: Rounds, V: Variant> StreamCipherCore for ChaChaCore<R, V> {
     #[inline(always)]
     fn remaining_blocks(&self) -> Option<usize> {
-        let rem = V::remaining_blocks(self.get_block_pos());
+        let rem = u32::MAX - self.get_block_pos();
         rem.try_into().ok()
     }
 
