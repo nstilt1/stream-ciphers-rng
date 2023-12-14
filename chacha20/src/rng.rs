@@ -301,8 +301,10 @@ macro_rules! impl_chacha_rng {
                 if remaining != 0 {
                     // fills with as many bytes from the currently generated buffer as necessary
                     if self.index < BlockRngResults::LEN {
-                        let (consumed_u32, filled_u8) =
-                            fill_via_u32_chunks(&self.buffer.as_ref()[self.index..], &mut dest[0..]);
+                        let (consumed_u32, filled_u8) = fill_via_u32_chunks(
+                            &self.buffer.as_ref()[self.index..],
+                            &mut dest[0..],
+                        );
                         self.index += consumed_u32;
                         dest_pos += filled_u8;
 
@@ -329,7 +331,7 @@ macro_rules! impl_chacha_rng {
                 }
 
                 dest_pos += writable_block_bytes;
-                // index is at the maximum value, and the dest 
+                // index is at the maximum value, and the dest
                 // has been filled
                 if dest_pos == dest_len {
                     return;
