@@ -11,7 +11,7 @@ use chacha20::{
 };
 
 const KB: usize = 1024;
-#[cfg(any(target_arch = "x86_64", target_arch = "x86", all(target_arch = "aarch64", target_os = "Linux")))]
+#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 fn bench(c: &mut Criterion<CyclesPerByte>) {
     let mut group = c.benchmark_group("stream-cipher");
 
@@ -31,7 +31,7 @@ fn bench(c: &mut Criterion<CyclesPerByte>) {
     group.finish();
 }
 
-#[cfg(not(any(target_arch = "x86_64", target_arch = "x86", all(target_arch = "aarch64", target_os = "Linux"))))]
+#[cfg(not(any(target_arch = "x86_64", target_arch = "x86")))]
 fn bench(c: &mut Criterion) {
     let mut group = c.benchmark_group("stream-cipher");
 

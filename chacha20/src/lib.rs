@@ -131,7 +131,7 @@ mod rng;
 mod xchacha;
 
 mod variants;
-use variants::{Ietf, Variant};
+use variants::{Variant, Ietf};
 
 #[cfg(feature = "cipher")]
 pub use chacha::{ChaCha12, ChaCha20, ChaCha8, Key, KeyIvInit};
@@ -151,8 +151,35 @@ const CONSTANTS: [u32; 4] = [0x6170_7865, 0x3320_646e, 0x7962_2d32, 0x6b20_6574]
 /// Number of 32-bit words in the ChaCha state
 const STATE_WORDS: usize = 16;
 
-mod rounds;
-use rounds::Rounds;
+/// Marker type for a number of ChaCha rounds to perform.
+pub trait Rounds: Copy {
+    /// The amount of rounds to perform
+    const COUNT: usize;
+}
+
+/// 8-rounds
+#[derive(Copy, Clone)]
+pub struct R8;
+
+impl Rounds for R8 {
+    const COUNT: usize = 4;
+}
+
+/// 12-rounds
+#[derive(Copy, Clone)]
+pub struct R12;
+
+impl Rounds for R12 {
+    const COUNT: usize = 6;
+}
+
+/// 20-rounds
+#[derive(Copy, Clone)]
+pub struct R20;
+
+impl Rounds for R20 {
+    const COUNT: usize = 10;
+}
 
 cfg_if! {
     if #[cfg(chacha20_force_soft)] {
@@ -286,16 +313,16 @@ impl<R: Rounds, V: Variant> StreamCipherSeekCore for ChaChaCore<R, V> {
     #[inline(always)]
     fn get_block_pos(&self) -> Self::Counter {
         // seems like we have to cast a spell to do anything with this type
-        V::get_pos_helper(&self.state[12..=13])
+        V::into_block_counter(&self.state[12..14])
     }
 
     #[inline(always)]
     fn set_block_pos(&mut self, pos: Self::Counter) {
         // seems like we have to cast a spell to do anything with this type
-        let result = V::set_pos_helper(pos);
-        self.state[12] = result[0];
-        if !V::IS_32_BIT_COUNTER {
-            self.state[13] = result[1];
+        let result = V::from_block_counter(pos);
+        self.state[12] = result.as_ref()[0];
+        if !V::IS_U32 {
+            self.state[13] = result.as_ref()[1];
         }
     }
 }
@@ -304,7 +331,8 @@ impl<R: Rounds, V: Variant> StreamCipherSeekCore for ChaChaCore<R, V> {
 impl<R: Rounds, V: Variant> StreamCipherCore for ChaChaCore<R, V> {
     #[inline(always)]
     fn remaining_blocks(&self) -> Option<usize> {
-        V::remaining_blocks(self.get_block_pos())
+        let rem = V::remaining_blocks(self.get_block_pos());
+        rem.try_into().ok()
     }
 
     fn process_with_backend(&mut self, f: impl cipher::StreamClosure<BlockSize = Self::BlockSize>) {
@@ -315,21 +343,21 @@ impl<R: Rounds, V: Variant> StreamCipherCore for ChaChaCore<R, V> {
                 cfg_if! {
                     if #[cfg(chacha20_force_avx2)] {
                         unsafe {
-                            backends::avx2::inner::<R, _, V>(&mut self.state, f);
+                            backends::avx2::inner::<R, _>(&mut self.state, f);
                         }
                     } else if #[cfg(chacha20_force_sse2)] {
                         unsafe {
-                            backends::sse2::inner::<R, _, V>(&mut self.state, f);
+                            backends::sse2::inner::<R, _>(&mut self.state, f);
                         }
                     } else {
                         let (avx2_token, sse2_token) = self.tokens;
                         if avx2_token.get() {
                             unsafe {
-                                backends::avx2::inner::<R, _, V>(&mut self.state, f);
+                                backends::avx2::inner::<R, _>(&mut self.state, f);
                             }
                         } else if sse2_token.get() {
                             unsafe {
-                                backends::sse2::inner::<R, _, V>(&mut self.state, f);
+                                backends::sse2::inner::<R, _>(&mut self.state, f);
                             }
                         } else {
                             f.call(&mut backends::soft::Backend(self));
@@ -338,7 +366,7 @@ impl<R: Rounds, V: Variant> StreamCipherCore for ChaChaCore<R, V> {
                 }
             } else if #[cfg(all(chacha20_force_neon, target_arch = "aarch64", target_feature = "neon"))] {
                 unsafe {
-                    backends::neon::inner::<R, _, V>(&mut self.state, f);
+                    backends::neon::inner::<R, _>(&mut self.state, f);
                 }
             } else {
                 f.call(&mut backends::soft::Backend(self));
