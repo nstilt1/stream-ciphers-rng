@@ -58,7 +58,7 @@ fn bench_chacha20rng(c: &mut Criterion<CyclesPerByte>) {
     // by using the same group twice, it should allow us to see a direct comparison
     // of both implementations
     // it seems like it needs to be manually switched using comments
-    let mut chacha_x86 = c.benchmark_group("chacha-SIMD-comparison-x86");
+    let mut chacha_x86 = c.benchmark_group("ChaCha20Rng");
 
     // no SIMD first
     for size in &[KB, 2 * KB, 4 * KB, 8 * KB, 16 * KB] {
@@ -83,7 +83,7 @@ fn bench_chacha20rng(c: &mut Criterion) {
     // by using the same group twice, it should allow us to see a direct comparison
     // of both implementations
     // it seems like it needs to be manually switched using comments
-    let mut chacha_aarch64 = c.benchmark_group("chacha-SIMD-comparison-aarch64");
+    let mut chacha_aarch64 = c.benchmark_group("ChaCha20Rng");
 
     // no SIMD first
     for size in &[KB, 2 * KB, 4 * KB, 8 * KB, 16 * KB] {
