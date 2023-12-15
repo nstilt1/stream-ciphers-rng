@@ -54,19 +54,27 @@ where
     state[12] = _mm_cvtsi128_si32(backend.v[3]) as u32;
 }
 
-#[cfg(feature = "cipher")]
-impl<R: Rounds> StreamBackend for Backend<R> {
+impl<R: Rounds> Backend<R> {
     #[inline(always)]
-    fn gen_ks_block(&mut self, block: &mut Block) {
+    // Essentially the same as the original `gen_ks_block` except it takes 
+    // a pointer.
+    fn write_ks_block(&mut self, block: *mut u8) {
         unsafe {
             let res = rounds::<R>(&self.v);
             self.v[3] = _mm_add_epi32(self.v[3], _mm_set_epi32(0, 0, 0, 1));
 
-            let block_ptr = block.as_mut_ptr() as *mut __m128i;
+            let block_ptr = block as *mut __m128i;
             for i in 0..4 {
                 _mm_storeu_si128(block_ptr.add(i), res[i]);
             }
         }
+    }
+}
+
+impl<R: Rounds> StreamBackend for Backend<R> {
+    #[inline(always)]
+    fn gen_ks_block(&mut self, block: &mut Block) {
+        self.write_ks_block(block.as_mut_ptr() as *mut u8);
     }
 }
 
@@ -94,29 +102,14 @@ where
     };
 
     for _i in 0..4 {
-        backend.rng_gen_ks_block(buffer);
+        backend.write_ks_block(buffer);
         buffer = buffer.add(64);
     }
 
     core.state[12] = _mm_cvtsi128_si32(backend.v[3]) as u32;
 }
 
-#[cfg(feature = "rand_core")]
-impl<R: Rounds> Backend<R> {
-    #[inline(always)]
-    /// T
-    fn rng_gen_ks_block(&mut self, block: *mut u8) {
-        unsafe {
-            let res = rounds::<R>(&self.v);
-            self.v[3] = _mm_add_epi32(self.v[3], _mm_set_epi32(0, 0, 0, 1));
 
-            let block_ptr = block as *mut __m128i;
-            for i in 0..4 {
-                _mm_storeu_si128(block_ptr.add(i), res[i]);
-            }
-        }
-    }
-}
 
 #[inline]
 #[target_feature(enable = "sse2")]
