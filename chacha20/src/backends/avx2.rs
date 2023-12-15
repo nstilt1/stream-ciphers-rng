@@ -1,4 +1,4 @@
-use crate::{Rounds, STATE_WORDS};
+use crate::Rounds;
 use core::marker::PhantomData;
 
 #[cfg(feature = "rand_core")]
@@ -16,7 +16,7 @@ use cipher::{StreamBackend, StreamClosure,
 };
 
 #[cfg(feature = "cipher")]
-use crate::chacha::Block;
+use crate::{chacha::Block, STATE_WORDS};
 
 /// Number of blocks processed in parallel.
 const PAR_BLOCKS: usize = 4;

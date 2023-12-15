@@ -3,14 +3,14 @@
 //! Adapted from the Crypto++ `chacha_simd` implementation by Jack Lloyd and
 //! Jeffrey Walton (public domain).
 
-use crate::{Rounds, STATE_WORDS};
+use crate::Rounds;
 use core::{arch::aarch64::*, marker::PhantomData};
 
 #[cfg(feature = "rand_core")]
 use crate::{variants::Variant, ChaChaCore};
 
 #[cfg(feature = "cipher")]
-use crate::chacha::Block;
+use crate::{chacha::Block, STATE_WORDS};
 #[cfg(feature = "cipher")]
 use cipher::{
     consts::{U4, U64},

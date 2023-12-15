@@ -1,4 +1,4 @@
-use crate::{Rounds, STATE_WORDS};
+use crate::Rounds;
 use core::marker::PhantomData;
 
 #[cfg(feature = "rand_core")]
@@ -15,7 +15,7 @@ use cipher::{
     consts::{U1, U64}
 };
 #[cfg(feature = "cipher")]
-use crate::chacha::Block;
+use crate::{chacha::Block, STATE_WORDS};
 
 struct Backend<R: Rounds> {
     v: [__m128i; 4],
@@ -71,6 +71,7 @@ impl<R: Rounds> Backend<R> {
     }
 }
 
+#[cfg(feature = "cipher")]
 impl<R: Rounds> StreamBackend for Backend<R> {
     #[inline(always)]
     fn gen_ks_block(&mut self, block: &mut Block) {
