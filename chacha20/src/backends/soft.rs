@@ -24,6 +24,7 @@ impl<'a, R: Rounds, V: Variant> ParBlocksSizeUser for Backend<'a, R, V> {
 #[cfg(feature = "cipher")]
 impl<'a, R: Rounds, V: Variant> StreamBackend for Backend<'a, R, V> {
     #[inline(always)]
+    /// Writes a single block to `block`
     fn gen_ks_block(&mut self, block: &mut Block) {
         let res = run_rounds::<R>(&self.0.state);
         self.0.state[12] = self.0.state[12].wrapping_add(1);
@@ -37,6 +38,7 @@ impl<'a, R: Rounds, V: Variant> StreamBackend for Backend<'a, R, V> {
 #[cfg(feature = "rand_core")]
 impl<'a, R: Rounds, V: Variant> Backend<'a, R, V> {
     #[inline(always)]
+    /// A method that generates 4 blocks and writes it to the dest.
     pub(crate) fn rng_gen_ks_blocks(&mut self, dest_ptr: *mut u8) {
         unsafe {
             let mut block_ptr = dest_ptr as *mut u32;

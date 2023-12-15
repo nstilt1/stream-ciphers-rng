@@ -5,79 +5,67 @@ These benches were ran on 12/15/2023 using an M1.
 ```
 Running src/chacha20.rs (target/release/deps/chacha20-1ed7885f6d535b43)
 Gnuplot not found, using plotters backend
-Benchmarking stream-cipher/apply_keystream/1024: Collecting 100 samples in estimated 5.0056 
 stream-cipher/apply_keystream/1024
-                        time:   [3.1451 µs 3.1546 µs 3.1707 µs]
-                        thrpt:  [308.00 MiB/s 309.57 MiB/s 310.51 MiB/s]
-Found 5 outliers among 100 measurements (5.00%)
-  4 (4.00%) high mild
-  1 (1.00%) high severe
-Benchmarking stream-cipher/apply_keystream/2048: Collecting 100 samples in estimated 5.0518 
+                        time:   [3.1058 µs 3.1071 µs 3.1087 µs]
+                        thrpt:  [314.14 MiB/s 314.30 MiB/s 314.44 MiB/s]
+Found 11 outliers among 100 measurements (11.00%)
+  2 (2.00%) high mild
+  9 (9.00%) high severe
 stream-cipher/apply_keystream/2048
-                        time:   [6.4806 µs 6.5965 µs 6.7629 µs]
-                        thrpt:  [288.80 MiB/s 296.08 MiB/s 301.38 MiB/s]
-Found 12 outliers among 100 measurements (12.00%)
-  12 (12.00%) high severe
-Benchmarking stream-cipher/apply_keystream/4096: Collecting 100 samples in estimated 5.0490 
+                        time:   [6.2033 µs 6.2049 µs 6.2067 µs]
+                        thrpt:  [314.68 MiB/s 314.77 MiB/s 314.85 MiB/s]
+Found 10 outliers among 100 measurements (10.00%)
+  4 (4.00%) high mild
+  6 (6.00%) high severe
 stream-cipher/apply_keystream/4096
-                        time:   [12.534 µs 12.551 µs 12.572 µs]
-                        thrpt:  [310.72 MiB/s 311.22 MiB/s 311.65 MiB/s]
-Found 9 outliers among 100 measurements (9.00%)
-  5 (5.00%) high mild
-  4 (4.00%) high severe
-Benchmarking stream-cipher/apply_keystream/8192: Collecting 100 samples in estimated 5.0807 
+                        time:   [12.401 µs 12.409 µs 12.419 µs]
+                        thrpt:  [314.54 MiB/s 314.80 MiB/s 314.99 MiB/s]
+Found 13 outliers among 100 measurements (13.00%)
+  7 (7.00%) high mild
+  6 (6.00%) high severe
 stream-cipher/apply_keystream/8192
-                        time:   [25.018 µs 25.049 µs 25.090 µs]
-                        thrpt:  [311.38 MiB/s 311.89 MiB/s 312.27 MiB/s]
-Found 8 outliers among 100 measurements (8.00%)
+                        time:   [24.793 µs 24.803 µs 24.816 µs]
+                        thrpt:  [314.81 MiB/s 314.98 MiB/s 315.12 MiB/s]
+Found 13 outliers among 100 measurements (13.00%)
   5 (5.00%) high mild
-  3 (3.00%) high severe
-Benchmarking stream-cipher/apply_keystream/16384: Collecting 100 samples in estimated 5.0587
+  8 (8.00%) high severe
 stream-cipher/apply_keystream/16384
-                        time:   [49.975 µs 49.994 µs 50.014 µs]
-                        thrpt:  [312.41 MiB/s 312.54 MiB/s 312.66 MiB/s]
-Found 9 outliers among 100 measurements (9.00%)
-  2 (2.00%) low mild
+                        time:   [49.598 µs 49.629 µs 49.666 µs]
+                        thrpt:  [314.60 MiB/s 314.84 MiB/s 315.03 MiB/s]
+Found 5 outliers among 100 measurements (5.00%)
   3 (3.00%) high mild
-  4 (4.00%) high severe
+  2 (2.00%) high severe
 ```
 
 ## ChaCha20Rng::fill_bytes()
 ```
-Benchmarking ChaCha20Rng/fill_bytes/1024: Collecting 100 samples in estimated 5.0056 s (1.6M
 ChaCha20Rng/fill_bytes/1024
-                        time:   [3.1424 µs 3.1476 µs 3.1537 µs]
-                        thrpt:  [309.65 MiB/s 310.25 MiB/s 310.77 MiB/s]
-Found 13 outliers among 100 measurements (13.00%)
-  1 (1.00%) low mild
-  5 (5.00%) high mild
-  7 (7.00%) high severe
-Benchmarking ChaCha20Rng/fill_bytes/2048: Collecting 100 samples in estimated 5.0233 s (798k
+                        time:   [3.1149 µs 3.1185 µs 3.1228 µs]
+                        thrpt:  [312.72 MiB/s 313.15 MiB/s 313.51 MiB/s]
+Found 3 outliers among 100 measurements (3.00%)
+  1 (1.00%) high mild
+  2 (2.00%) high severe
 ChaCha20Rng/fill_bytes/2048
-                        time:   [6.2738 µs 6.2978 µs 6.3387 µs]
-                        thrpt:  [308.13 MiB/s 310.13 MiB/s 311.31 MiB/s]
-Found 7 outliers among 100 measurements (7.00%)
-  3 (3.00%) high mild
-  4 (4.00%) high severe
-Benchmarking ChaCha20Rng/fill_bytes/4096: Collecting 100 samples in estimated 5.0096 s (399k
+                        time:   [6.2150 µs 6.2215 µs 6.2333 µs]
+                        thrpt:  [313.34 MiB/s 313.93 MiB/s 314.26 MiB/s]
+Found 13 outliers among 100 measurements (13.00%)
+  1 (1.00%) high mild
+  12 (12.00%) high severe
 ChaCha20Rng/fill_bytes/4096
-                        time:   [12.576 µs 12.595 µs 12.614 µs]
-                        thrpt:  [309.68 MiB/s 310.14 MiB/s 310.60 MiB/s]
-Found 7 outliers among 100 measurements (7.00%)
+                        time:   [12.423 µs 12.427 µs 12.431 µs]
+                        thrpt:  [314.23 MiB/s 314.34 MiB/s 314.43 MiB/s]
+Found 11 outliers among 100 measurements (11.00%)
   2 (2.00%) high mild
-  5 (5.00%) high severe
-Benchmarking ChaCha20Rng/fill_bytes/8192: Collecting 100 samples in estimated 5.0888 s (202k
+  9 (9.00%) high severe
 ChaCha20Rng/fill_bytes/8192
-                        time:   [25.191 µs 25.231 µs 25.278 µs]
-                        thrpt:  [309.07 MiB/s 309.64 MiB/s 310.13 MiB/s]
-Found 4 outliers among 100 measurements (4.00%)
-  3 (3.00%) high mild
-  1 (1.00%) high severe
-Benchmarking ChaCha20Rng/fill_bytes/16384: Collecting 100 samples in estimated 5.1692 s (101
+                        time:   [24.850 µs 24.884 µs 24.947 µs]
+                        thrpt:  [313.17 MiB/s 313.96 MiB/s 314.38 MiB/s]
+Found 1 outliers among 100 measurements (1.00%)
+  1 (1.00%) high mild
 ChaCha20Rng/fill_bytes/16384
-                        time:   [50.255 µs 50.322 µs 50.402 µs]
-                        thrpt:  [310.01 MiB/s 310.50 MiB/s 310.92 MiB/s]
-Found 7 outliers among 100 measurements (7.00%)
+                        time:   [49.727 µs 49.779 µs 49.846 µs]
+                        thrpt:  [313.47 MiB/s 313.88 MiB/s 314.21 MiB/s]
+Found 15 outliers among 100 measurements (15.00%)
   4 (4.00%) high mild
-  3 (3.00%) high severe
+  11 (11.00%) high severe
 ```
