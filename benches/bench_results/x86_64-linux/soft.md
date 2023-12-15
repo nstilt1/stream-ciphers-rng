@@ -2,6 +2,7 @@
 These benches were ran on 12/14/2023 using a 3.0 GHz i9 CPU.
 
 ## ChaCha20::apply_keystream()
+```
      Running src/chacha20.rs (target/release/deps/chacha20-bc9efd54ac287186)
 Gnuplot not found, using plotters backend
 stream-cipher/apply_keystream/1024
@@ -32,8 +33,9 @@ stream-cipher/apply_keystream/16384
                         thrpt:  [5.1226 cpb 5.1138 cpb 5.1051 cpb]
 Found 2 outliers among 100 measurements (2.00%)
   2 (2.00%) high mild
-
+```
 ## ChaCha20Rng::fill_bytes()
+```
 ChaCha20Rng/fill_bytes/1024
                         time:   [4736.7752 cycles 4745.4223 cycles 4754.8510 cycles]
                         thrpt:  [4.6434 cpb 4.6342 cpb 4.6258 cpb]
@@ -63,3 +65,4 @@ ChaCha20Rng/fill_bytes/16384
                         thrpt:  [4.6373 cpb 4.6303 cpb 4.6236 cpb]
 Found 4 outliers among 100 measurements (4.00%)
   4 (4.00%) high mild
+```

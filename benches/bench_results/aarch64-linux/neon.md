@@ -1,7 +1,8 @@
-# Benchmarks for chacha20 using the Soft implementation
-These benches were ran on 12/14/2023 using a Raspberry Pi 4.
+# Benchmarks for chacha20 using NEON
+These benches were ran on 12/14/2023 using a Raspberry Pi 4b.
 
 ## ChaCha20::apply_keystream()
+```
      Running src/chacha20.rs (target/release/deps/chacha20-02f555ae0af3670b)
 Gnuplot not found, using plotters backend
 Benchmarking stream-cipher/apply_keystream/1024: Collecting 100 samples in estimstream-cipher/apply_keystream/1024
@@ -62,8 +63,9 @@ Found 13 outliers among 100 measurements (13.00%)
   2 (2.00%) low mild
   4 (4.00%) high mild
   6 (6.00%) high severe
-
+```
 ## ChaCha20Rng::fill_bytes()
+```
 Benchmarking ChaCha20Rng/fill_bytes/1024: Collecting 100 samples in estimated 5.ChaCha20Rng/fill_bytes/1024
                         time:   [5572.6311 cycles 5573.1775 cycles 5573.7676 cycles]
                         thrpt:  [5.4431 cpb 5.4426 cpb 5.4420 cpb]
@@ -122,3 +124,4 @@ Found 16 outliers among 100 measurements (16.00%)
   1 (1.00%) low mild
   3 (3.00%) high mild
   9 (9.00%) high severe
+```
