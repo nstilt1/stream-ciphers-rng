@@ -74,7 +74,7 @@ impl<R: Rounds> Backend<R> {
 impl<R: Rounds> StreamBackend for Backend<R> {
     #[inline(always)]
     fn gen_ks_block(&mut self, block: &mut Block) {
-        self.write_ks_block(block.as_mut_ptr() as *mut u8);
+        self.write_ks_block(block.as_mut_ptr());
     }
 }
 
