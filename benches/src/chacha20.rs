@@ -1,7 +1,7 @@
 //! ChaCha20 benchmark
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 
-#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+#[cfg(any(target_arch = "x86_64", target_arch = "x86", all(target_arch = "aarch64", target_os = "linux")))]
 use criterion_cycles_per_byte::CyclesPerByte;
 
 //use previous_chacha20::{
@@ -11,7 +11,7 @@ use chacha20::{
 };
 
 const KB: usize = 1024;
-#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+#[cfg(any(target_arch = "x86_64", target_arch = "x86", all(target_arch = "aarch64", target_os = "linux")))]
 fn bench(c: &mut Criterion<CyclesPerByte>) {
     let mut group = c.benchmark_group("stream-cipher");
 
@@ -31,7 +31,7 @@ fn bench(c: &mut Criterion<CyclesPerByte>) {
     group.finish();
 }
 
-#[cfg(not(any(target_arch = "x86_64", target_arch = "x86")))]
+#[cfg(not(any(target_arch = "x86_64", target_arch = "x86", all(target_arch = "aarch64", target_os = "linux"))))]
 fn bench(c: &mut Criterion) {
     let mut group = c.benchmark_group("stream-cipher");
 
@@ -53,7 +53,7 @@ fn bench(c: &mut Criterion) {
 
 use chacha20::rand_core::{RngCore, SeedableRng};
 
-#[cfg(any(target_arch = "x86_64", target_arch = "x86", all(target_arch = "aarch64", target_os = "Linux")))]
+#[cfg(any(target_arch = "x86_64", target_arch = "x86", all(target_arch = "aarch64", target_os = "linux")))]
 fn bench_chacha20rng(c: &mut Criterion<CyclesPerByte>) {
     // by using the same group twice, it should allow us to see a direct comparison
     // of both implementations
@@ -78,7 +78,7 @@ fn bench_chacha20rng(c: &mut Criterion<CyclesPerByte>) {
     chacha_x86.finish();
 }
 
-#[cfg(not(any(target_arch = "x86_64", target_arch = "x86", all(target_arch = "aarch64", target_os = "Linux"))))]
+#[cfg(not(any(target_arch = "x86_64", target_arch = "x86", all(target_arch = "aarch64", target_os = "linux"))))]
 fn bench_chacha20rng(c: &mut Criterion) {
     // by using the same group twice, it should allow us to see a direct comparison
     // of both implementations
@@ -101,28 +101,28 @@ fn bench_chacha20rng(c: &mut Criterion) {
     chacha_aarch64.finish();
 }
 
-#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+#[cfg(any(target_arch = "x86_64", target_arch = "x86", all(target_arch = "aarch64", target_os = "linux")))]
 criterion_group!(
     name = benches_chacha20rng;
     config = Criterion::default().with_measurement(CyclesPerByte);
     targets = bench_chacha20rng
 );
 
-#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+#[cfg(any(target_arch = "x86_64", target_arch = "x86", all(target_arch = "aarch64", target_os = "linux")))]
 criterion_group!(
     name = benches;
     config = Criterion::default().with_measurement(CyclesPerByte);
     targets = bench
 );
 
-#[cfg(not(any(target_arch = "x86_64", target_arch = "x86")))]
+#[cfg(not(any(target_arch = "x86_64", target_arch = "x86", all(target_arch = "aarch64", target_os = "linux"))))]
 criterion_group!(
     name = benches_chacha20rng;
     config = Criterion::default();
     targets = bench_chacha20rng
 );
 
-#[cfg(not(any(target_arch = "x86_64", target_arch = "x86")))]
+#[cfg(not(any(target_arch = "x86_64", target_arch = "x86", all(target_arch = "aarch64", target_os = "linux"))))]
 criterion_group!(
     name = benches;
     config = Criterion::default();
