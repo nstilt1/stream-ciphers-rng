@@ -21,37 +21,41 @@ impl<'a, R: Rounds, V: Variant> BlockSizeUser for Backend<'a, R, V> {
 impl<'a, R: Rounds, V: Variant> ParBlocksSizeUser for Backend<'a, R, V> {
     type ParBlocksSize = U1;
 }
+
+impl<'a, R: Rounds, V: Variant> Backend<'a, R, V> {
+    #[inline(always)]
+    /// Generates a single keystream block and writes it to a pointer
+    pub(crate) fn write_ks_block(&mut self, dest_ptr: *mut u8) {
+        unsafe {
+            let mut block_ptr = dest_ptr as *mut u32;
+            let res = run_rounds::<R>(&self.0.state);
+            self.0.state[12] = self.0.state[12].wrapping_add(1);
+
+            for val in res.iter() {
+                block_ptr.write_unaligned(*val);
+                block_ptr = block_ptr.add(1);
+            }
+        }
+    }
+    /// A method that generates 4 blocks and writes it to the dest_ptr.
+    #[inline(always)]
+    #[cfg(feature = "rand_core")]
+    pub(crate) fn rng_gen_ks_blocks(&mut self, mut dest_ptr: *mut u8) {
+        unsafe {
+            for _i in 0..4 {
+                self.write_ks_block(dest_ptr);
+                dest_ptr = dest_ptr.add(64);
+            }
+        }
+    }
+}
+
 #[cfg(feature = "cipher")]
 impl<'a, R: Rounds, V: Variant> StreamBackend for Backend<'a, R, V> {
     #[inline(always)]
     /// Writes a single block to `block`
     fn gen_ks_block(&mut self, block: &mut Block) {
-        let res = run_rounds::<R>(&self.0.state);
-        self.0.state[12] = self.0.state[12].wrapping_add(1);
-
-        for (chunk, val) in block.chunks_exact_mut(4).zip(res.iter()) {
-            chunk.copy_from_slice(&val.to_le_bytes());
-        }
-    }
-}
-
-#[cfg(feature = "rand_core")]
-impl<'a, R: Rounds, V: Variant> Backend<'a, R, V> {
-    #[inline(always)]
-    /// A method that generates 4 blocks and writes it to the dest.
-    pub(crate) fn rng_gen_ks_blocks(&mut self, dest_ptr: *mut u8) {
-        unsafe {
-            let mut block_ptr = dest_ptr as *mut u32;
-            for _i in 0..4 {
-                let res = run_rounds::<R>(&self.0.state);
-                self.0.state[12] = self.0.state[12].wrapping_add(1);
-
-                for val in res.iter() {
-                    block_ptr.write_unaligned(*val);
-                    block_ptr = block_ptr.add(1);
-                }
-            }
-        }
+        self.write_ks_block(block.as_mut_ptr());
     }
 }
 
