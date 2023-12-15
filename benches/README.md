@@ -28,6 +28,7 @@ With the help of AI and the useful comments within the `criterion-cycles-per-byt
 ```
 $ sudo apt-get install build-essential raspberrypi-kernel-headers
 $ git clone https://github.com/jerinjacobk/armv8_pmu_cycle_counter_el0.git
+$ cd armv8_pmu_cycle_counter_el10
 $ make
 $ sudo insmod pmu_el0_cycle_counter.ko
 # Verifying that it is installed
