@@ -30,6 +30,7 @@ struct Backend<R: Rounds> {
 }
 
 impl<R: Rounds> Backend<R> {
+    #[inline]
     unsafe fn new(state: &mut [u32; STATE_WORDS]) -> Self {
         let state_ptr = state.as_ptr() as *const __m128i;
         let v = [
