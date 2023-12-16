@@ -272,7 +272,9 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
         assert!(!dest_ptr.is_null());
         cfg_if! {
             if #[cfg(chacha20_force_soft)] {
-                backends::soft::Backend(self).rng_gen_ks_blocks(dest_ptr);
+                unsafe {
+                    backends::soft::Backend(self).rng_gen_ks_blocks(dest_ptr);
+                }
             } else if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
                 cfg_if! {
                     if #[cfg(chacha20_force_avx2)] {
@@ -294,7 +296,9 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
                                 backends::sse2::rng_inner::<R, V>(self, dest_ptr);
                             }
                         } else {
-                            backends::soft::Backend(self).rng_gen_ks_blocks(dest_ptr);
+                            unsafe {
+                                backends::soft::Backend(self).rng_gen_ks_blocks(dest_ptr);
+                            }
                         }
                     }
                 }
@@ -303,7 +307,9 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
                     backends::neon::rng_inner::<R, V>(self, dest_ptr);
                 }
             } else {
-                backends::soft::Backend(self).rng_gen_ks_blocks(dest_ptr);
+                unsafe {
+                    backends::soft::Backend(self).rng_gen_ks_blocks(dest_ptr);
+                }
             }
         }
     }

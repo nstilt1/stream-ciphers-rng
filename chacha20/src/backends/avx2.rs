@@ -29,6 +29,29 @@ struct Backend<R: Rounds> {
     _pd: PhantomData<R>,
 }
 
+impl<R: Rounds> Backend<R> {
+    unsafe fn new(state: &mut [u32; STATE_WORDS]) -> Self {
+        let state_ptr = state.as_ptr() as *const __m128i;
+        let v = [
+            _mm256_broadcastsi128_si256(_mm_loadu_si128(state_ptr.add(0))),
+            _mm256_broadcastsi128_si256(_mm_loadu_si128(state_ptr.add(1))),
+            _mm256_broadcastsi128_si256(_mm_loadu_si128(state_ptr.add(2))),
+        ];
+        let mut c = _mm256_broadcastsi128_si256(_mm_loadu_si128(state_ptr.add(3)));
+        c = _mm256_add_epi32(c, _mm256_set_epi32(0, 0, 0, 1, 0, 0, 0, 0));
+        let mut ctr = [c; N];
+        for i in 0..N {
+            ctr[i] = c;
+            c = _mm256_add_epi32(c, _mm256_set_epi32(0, 0, 0, 2, 0, 0, 0, 2));
+        }
+        Backend::<R> {
+            v,
+            ctr,
+            _pd: PhantomData,
+        }
+    }
+}
+
 #[inline]
 #[cfg(feature = "cipher")]
 #[target_feature(enable = "avx2")]
@@ -37,28 +60,27 @@ where
     R: Rounds,
     F: StreamClosure<BlockSize = U64>,
 {
-    let state_ptr = state.as_ptr() as *const __m128i;
-    let v = [
-        _mm256_broadcastsi128_si256(_mm_loadu_si128(state_ptr.add(0))),
-        _mm256_broadcastsi128_si256(_mm_loadu_si128(state_ptr.add(1))),
-        _mm256_broadcastsi128_si256(_mm_loadu_si128(state_ptr.add(2))),
-    ];
-    let mut c = _mm256_broadcastsi128_si256(_mm_loadu_si128(state_ptr.add(3)));
-    c = _mm256_add_epi32(c, _mm256_set_epi32(0, 0, 0, 1, 0, 0, 0, 0));
-    let mut ctr = [c; N];
-    for i in 0..N {
-        ctr[i] = c;
-        c = _mm256_add_epi32(c, _mm256_set_epi32(0, 0, 0, 2, 0, 0, 0, 2));
-    }
-    let mut backend = Backend::<R> {
-        v,
-        ctr,
-        _pd: PhantomData,
-    };
+    let mut backend = Backend::<R>::new(state);
 
     f.call(&mut backend);
 
     state[12] = _mm256_extract_epi32(backend.ctr[0], 0) as u32;
+}
+
+#[inline]
+#[cfg(feature = "rand_core")]
+#[target_feature(enable = "avx2")]
+/// Generates 4 blocks and blindly writes them to dest
+pub(crate) unsafe fn rng_inner<R, V>(core: &mut ChaChaCore<R, V>, dest: *mut u8)
+where
+    R: Rounds,
+    V: Variant
+{
+    let mut backend = Backend::<R>::new(&mut core.state);
+
+    backend.write_par_ks_blocks(dest);
+
+    core.state[12] = _mm256_extract_epi32(backend.ctr[0], 0) as u32;
 }
 
 #[cfg(feature = "cipher")]
@@ -96,45 +118,9 @@ impl<R: Rounds> StreamBackend for Backend<R> {
     }
 }
 
-#[inline]
-#[cfg(feature = "rand_core")]
-#[target_feature(enable = "avx2")]
-/// This is essentially the same as `inner` except that it takes a pointer 
-/// and it only calls the gen_par_ks_blocks method.
-pub(crate) unsafe fn rng_inner<R, V>(core: &mut ChaChaCore<R, V>, dest: *mut u8)
-where
-    R: Rounds,
-    V: Variant
-{
-    assert!(!dest.is_null(), "Buffer pointer must not be null");
-    let state_ptr = core.state.as_ptr() as *const __m128i;
-    let v = [
-        _mm256_broadcastsi128_si256(_mm_loadu_si128(state_ptr.add(0))),
-        _mm256_broadcastsi128_si256(_mm_loadu_si128(state_ptr.add(1))),
-        _mm256_broadcastsi128_si256(_mm_loadu_si128(state_ptr.add(2))),
-    ];
-    let mut c = _mm256_broadcastsi128_si256(_mm_loadu_si128(state_ptr.add(3)));
-    c = _mm256_add_epi32(c, _mm256_set_epi32(0, 0, 0, 1, 0, 0, 0, 0));
-    let mut ctr = [c; N];
-    for i in 0..N {
-        ctr[i] = c;
-        c = _mm256_add_epi32(c, _mm256_set_epi32(0, 0, 0, 2, 0, 0, 0, 2));
-    }
-    let mut backend = Backend::<R> {
-        v,
-        ctr,
-        _pd: PhantomData,
-    };
-
-    backend.write_par_ks_blocks(dest);
-
-    core.state[12] = _mm256_extract_epi32(backend.ctr[0], 0) as u32;
-}
-
 impl<R: Rounds> Backend<R> {
     #[inline(always)]
-    /// This is essentially the same as gen_par_ks_blocks except that it 
-    /// takes a pointer.
+    /// Generates 4 blocks and writes them to dest
     fn write_par_ks_blocks(&mut self, dest: *mut u8) {
         unsafe {
             let vs = rounds::<R>(&self.v, &self.ctr);

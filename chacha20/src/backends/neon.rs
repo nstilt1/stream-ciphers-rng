@@ -21,13 +21,20 @@ struct Backend<R: Rounds> {
     state: [uint32x4_t; 4],
     _pd: PhantomData<R>,
 }
-#[cfg(feature = "cipher")]
-impl<R: Rounds> BlockSizeUser for Backend<R> {
-    type BlockSize = U64;
-}
-#[cfg(feature = "cipher")]
-impl<R: Rounds> ParBlocksSizeUser for Backend<R> {
-    type ParBlocksSize = U4;
+
+impl<R: Rounds> Backend<R> {
+    #[inline]
+    unsafe fn new(state: &mut [u32; STATE_WORDS]) -> Self {
+        Backend::<R> {
+            state: [
+                vld1q_u32(state.as_ptr().offset(0)),
+                vld1q_u32(state.as_ptr().offset(4)),
+                vld1q_u32(state.as_ptr().offset(8)),
+                vld1q_u32(state.as_ptr().offset(12)),
+            ],
+            _pd: PhantomData,
+        }
+    }
 }
 
 #[inline]
@@ -38,19 +45,36 @@ where
     R: Rounds,
     F: StreamClosure<BlockSize = U64>,
 {
-    let mut backend = Backend::<R> {
-        state: [
-            vld1q_u32(state.as_ptr().offset(0)),
-            vld1q_u32(state.as_ptr().offset(4)),
-            vld1q_u32(state.as_ptr().offset(8)),
-            vld1q_u32(state.as_ptr().offset(12)),
-        ],
-        _pd: PhantomData,
-    };
+    let mut backend = Backend::<R>::new(state);
 
     f.call(&mut backend);
 
     vst1q_u32(state.as_mut_ptr().offset(12), backend.state[3]);
+}
+
+#[inline]
+#[cfg(feature = "rand_core")]
+#[target_feature(enable = "neon")]
+/// Sets up backend and blindly writes 4 blocks to dest.
+pub(crate) unsafe fn rng_inner<R, V>(core: &mut ChaChaCore<R, V>, dest: *mut u8)
+where
+    R: Rounds,
+    V: Variant,
+{
+    let mut backend = Backend::<R>::new(&mut core.state);
+
+    backend.write_par_ks_blocks(dest);
+
+    vst1q_u32(core.state.as_mut_ptr().offset(12), backend.state[3]);
+}
+
+#[cfg(feature = "cipher")]
+impl<R: Rounds> BlockSizeUser for Backend<R> {
+    type BlockSize = U64;
+}
+#[cfg(feature = "cipher")]
+impl<R: Rounds> ParBlocksSizeUser for Backend<R> {
+    type ParBlocksSize = U4;
 }
 
 macro_rules! add64 {
@@ -81,36 +105,9 @@ impl<R: Rounds> StreamBackend for Backend<R> {
     }
 }
 
-#[inline]
-#[cfg(feature = "rand_core")]
-#[target_feature(enable = "neon")]
-/// This is essentially the same as the `inner` method except it takes a pointer
-/// and it only calls the `gen_par_ks_blocks` method.
-pub(crate) unsafe fn rng_inner<R, V>(core: &mut ChaChaCore<R, V>, dest: *mut u8)
-where
-    R: Rounds,
-    V: Variant,
-{
-    assert!(!dest.is_null(), "Pointer must not be null");
-    let mut backend = Backend::<R> {
-        state: [
-            vld1q_u32(core.state.as_ptr().offset(0)),
-            vld1q_u32(core.state.as_ptr().offset(4)),
-            vld1q_u32(core.state.as_ptr().offset(8)),
-            vld1q_u32(core.state.as_ptr().offset(12)),
-        ],
-        _pd: PhantomData,
-    };
-
-    backend.write_par_ks_blocks(dest);
-
-    vst1q_u32(core.state.as_mut_ptr().offset(12), backend.state[3]);
-}
-
 impl<R: Rounds> Backend<R> {
     #[inline(always)]
-    /// This is essentially the same as the original `gen_par_ks_blocks` method except
-    /// it takes a pointer instead.
+    /// Processes 4 blocks in parallel, and blindly writes 256 bytes to dest.
     fn write_par_ks_blocks(&mut self, mut dest: *mut u8) {
         macro_rules! rotate_left {
             ($v:ident, 8) => {{
