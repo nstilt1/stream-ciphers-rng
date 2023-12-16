@@ -1,5 +1,8 @@
-use crate::Rounds;
+use crate::{Rounds, STATE_WORDS};
 use core::marker::PhantomData;
+
+#[cfg(feature = "cipher")]
+use crate::chacha::Block;
 
 #[cfg(feature = "rand_core")]
 use crate::{ChaChaCore, variants::Variant};
@@ -14,8 +17,6 @@ use cipher::{
     StreamClosure, BlockSizeUser, ParBlocksSizeUser, StreamBackend,
     consts::{U1, U64}
 };
-#[cfg(feature = "cipher")]
-use crate::{chacha::Block, STATE_WORDS};
 
 struct Backend<R: Rounds> {
     v: [__m128i; 4],

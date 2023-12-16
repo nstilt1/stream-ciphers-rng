@@ -5,6 +5,7 @@ use crate::{variants::Variant, ChaChaCore, Rounds, STATE_WORDS};
 
 #[cfg(feature = "cipher")]
 use crate::chacha::Block;
+
 #[cfg(feature = "cipher")]
 use cipher::{
     consts::{U1, U64},
