@@ -1,6 +1,6 @@
-/// This file was made primarily because VariantCounter needs to be "public"
-/// in order for Variant to compile. This way, we don't need to expose
-/// VariantCounter when it is only for internal use.
+//! Distinguishing features of ChaCha variants.
+//! 
+//! To be revisited for the 64-bit counter.
 
 /// A trait that distinguishes some ChaCha variants
 pub trait Variant: Clone {

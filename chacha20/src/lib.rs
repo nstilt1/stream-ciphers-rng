@@ -265,51 +265,38 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
         }
     }
 
-    /// Generates 4 blocks in parallel with avx2 & neon, but merely fills
-    /// 4 blocks with sse2 & soft, writing them to the pointer's address.
+    /// Generates 256 bytes of output with backends, then blindly writes them to dest_ptr
+    /// 
+    /// # Safety
+    /// `dest_ptr` must have at least 256 bytes available to be overwritten, or else it 
+    /// could produce undefined behavior.
     #[cfg(feature = "rand_core")]
-    fn generate(&mut self, dest_ptr: *mut u8) {
+    unsafe fn generate(&mut self, dest_ptr: *mut u8) {
         assert!(!dest_ptr.is_null());
         cfg_if! {
             if #[cfg(chacha20_force_soft)] {
-                unsafe {
-                    backends::soft::Backend(self).rng_gen_ks_blocks(dest_ptr);
-                }
+                backends::soft::Backend(self).rng_gen_ks_blocks(dest_ptr);
             } else if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
                 cfg_if! {
                     if #[cfg(chacha20_force_avx2)] {
-                        unsafe {
-                            backends::avx2::rng_inner::<R, V>(self, dest_ptr);
-                        }
+                        backends::avx2::rng_inner::<R, V>(self, dest_ptr);
                     } else if #[cfg(chacha20_force_sse2)] {
-                        unsafe {
-                            backends::sse2::rng_inner::<R, V>(self, dest_ptr);
-                        }
+                        backends::sse2::rng_inner::<R, V>(self, dest_ptr);
                     } else {
                         let (avx2_token, sse2_token) = self.tokens;
                         if avx2_token.get() {
-                            unsafe {
-                                backends::avx2::rng_inner::<R, V>(self, dest_ptr);
-                            }
+                            backends::avx2::rng_inner::<R, V>(self, dest_ptr);
                         } else if sse2_token.get() {
-                            unsafe {
-                                backends::sse2::rng_inner::<R, V>(self, dest_ptr);
-                            }
+                            backends::sse2::rng_inner::<R, V>(self, dest_ptr);
                         } else {
-                            unsafe {
-                                backends::soft::Backend(self).rng_gen_ks_blocks(dest_ptr);
-                            }
+                            backends::soft::Backend(self).rng_gen_ks_blocks(dest_ptr);
                         }
                     }
                 }
             } else if #[cfg(all(chacha20_force_neon, target_arch = "aarch64", target_feature = "neon"))] {
-                unsafe {
-                    backends::neon::rng_inner::<R, V>(self, dest_ptr);
-                }
+                backends::neon::rng_inner::<R, V>(self, dest_ptr);
             } else {
-                unsafe {
-                    backends::soft::Backend(self).rng_gen_ks_blocks(dest_ptr);
-                }
+                backends::soft::Backend(self).rng_gen_ks_blocks(dest_ptr);
             }
         }
     }

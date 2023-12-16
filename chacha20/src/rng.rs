@@ -6,9 +6,6 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// This was commented out due to using pointers
-//#![cfg_attr(not(test), forbid(unsafe_code))]
-
 use core::fmt::Debug;
 
 use rand_core::{impls::fill_via_u32_chunks, CryptoRng, Error, RngCore, SeedableRng};
@@ -314,31 +311,36 @@ macro_rules! impl_chacha_rng {
                     }
                 }
 
-                // write to all of the full 256-byte chunks by excluding the last 8 bits from the len
-                // for the upper bound index
-                let writable_block_bytes = (dest_len - dest_pos) & !(0xFF);
-                //let (mut chunks, mut tail) = tail.split_at(writable_block_bytes);
+                // Calculate how many bytes we can write full 256-byte chunks to by 
+                // excluding the last 8 bits from `(dest_len - dest_pos)`. Those 8 
+                // bits can amount to only 255 byte indices since it measures length.
+                let writable_chunk_bytes = (dest_len - dest_pos) & !0xFF;
 
-                let num_blocks = writable_block_bytes >> 8;
+                // Calculate how many 256-byte chunks are available to write to, 
+                // equivalent to writable_chunk_bytes / 256
+                let num_chunks = writable_chunk_bytes >> 8;
 
+                // SAFETY: This only writes to indices that have not yet been written 
+                // to, and we have determined how many chunks are available to be 
+                // written to.
                 unsafe {
-                    let mut block_ptr = dest.as_mut_ptr();
-                    block_ptr = block_ptr.add(dest_pos);
-                    for _i in 0..num_blocks {
-                        self.core.generate(block_ptr);
-                        block_ptr = block_ptr.add(256);
+                    let mut chunk_ptr = dest.as_mut_ptr();
+                    chunk_ptr = chunk_ptr.add(dest_pos);
+                    // This will not run if `num_chunks` is 0
+                    for _i in 0..num_chunks {
+                        self.core.generate(chunk_ptr);
+                        chunk_ptr = chunk_ptr.add(256);
                     }
                 }
 
-                dest_pos += writable_block_bytes;
-                // index is at the maximum value, and the dest
-                // has been filled
+                dest_pos += writable_chunk_bytes;
+                // self.index is currently at the maximum value
                 if dest_pos == dest_len {
+                    // dest has been filled
                     return;
                 }
                 // refill buffer before filling the tail
-                self.index = 0;
-                self.core.generate(self.buffer.0.as_mut_ptr() as *mut u8);
+                self.generate_and_set(0);
 
                 let (consumed_u32, _filled_u8) =
                     fill_via_u32_chunks(&self.buffer.as_ref()[self.index..], &mut dest[dest_pos..]);
@@ -378,7 +380,11 @@ macro_rules! impl_chacha_rng {
             #[inline]
             pub fn generate_and_set(&mut self, index: usize) {
                 assert!(index < self.buffer.as_ref().len());
-                self.core.generate(self.buffer.0.as_mut_ptr() as *mut u8);
+                // SAFETY: `self.buffer.0` is 256 bytes long, allowing `generate()` 
+                // to be called safely.
+                unsafe {
+                    self.core.generate(self.buffer.0.as_mut_ptr() as *mut u8);
+                }
                 self.index = index;
             }
             // The buffer is a 4-block window, i.e. it is always at a block-aligned position in the
