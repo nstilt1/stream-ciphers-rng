@@ -26,14 +26,14 @@ impl<'a, R: Rounds, V: Variant> Backend<'a, R, V> {
     #[inline(always)]
     /// Generates a single keystream block and writes it to a pointer
     pub(crate) unsafe fn write_ks_block(&mut self, dest_ptr: *mut u8) {
-            let mut block_ptr = dest_ptr as *mut u32;
-            let res = run_rounds::<R>(&self.0.state);
-            self.0.state[12] = self.0.state[12].wrapping_add(1);
+        let mut block_ptr = dest_ptr as *mut u32;
+        let res = run_rounds::<R>(&self.0.state);
+        self.0.state[12] = self.0.state[12].wrapping_add(1);
 
-            for val in res.iter() {
-                block_ptr.write_unaligned(val.to_le());
-                block_ptr = block_ptr.add(1);
-            }
+        for val in res.iter() {
+            block_ptr.write_unaligned(val.to_le());
+            block_ptr = block_ptr.add(1);
+        }
     }
     /// Generates 4 blocks and blindly writes it to the dest_ptr.
     #[inline(always)]
@@ -51,8 +51,8 @@ impl<'a, R: Rounds, V: Variant> StreamBackend for Backend<'a, R, V> {
     #[inline(always)]
     /// Writes a single block to `block`
     fn gen_ks_block(&mut self, block: &mut Block) {
-        unsafe { 
-            self.write_ks_block(block.as_mut_ptr()); 
+        unsafe {
+            self.write_ks_block(block.as_mut_ptr());
         }
     }
 }
