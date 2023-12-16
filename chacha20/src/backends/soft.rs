@@ -32,7 +32,7 @@ impl<'a, R: Rounds, V: Variant> Backend<'a, R, V> {
             self.0.state[12] = self.0.state[12].wrapping_add(1);
 
             for val in res.iter() {
-                block_ptr.write_unaligned(*val);
+                block_ptr.write_unaligned(val.to_le());
                 block_ptr = block_ptr.add(1);
             }
         }

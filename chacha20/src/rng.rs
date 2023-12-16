@@ -575,7 +575,6 @@ impl_chacha_rng!(ChaCha20Rng, ChaCha20Core, R20, abst20);
 mod tests {
 
     use super::*;
-    use rand_chacha::ChaCha20Rng as OGChacha;
     use rand_core::{RngCore, SeedableRng};
 
     #[cfg(feature = "serde1")]
@@ -718,21 +717,15 @@ mod tests {
 
     #[test]
     fn test_set_and_get_equivalence() {
-        use rand_chacha::rand_core::SeedableRng;
         let seed = [44u8; 32];
         let mut rng = ChaCha20Rng::from_seed(seed.into());
-        let mut original_rng = OGChacha::from_seed(seed.into());
         let stream = 1337 as u128;
         rng.set_stream(stream);
-        original_rng.set_stream(stream as u64);
         let word_pos = 35534 as u64;
         rng.set_word_pos(word_pos);
 
-        original_rng.set_word_pos(word_pos as u128);
-
         assert_eq!(rng.get_seed(), seed);
         assert_eq!(rng.get_stream(), stream);
-        assert_eq!(rng.get_word_pos(), original_rng.get_word_pos() as u64);
         assert_eq!(rng.get_word_pos(), word_pos);
     }
 
