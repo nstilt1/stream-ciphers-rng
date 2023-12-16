@@ -266,9 +266,9 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
     }
 
     /// Generates 256 bytes of output with backends, then blindly writes them to dest_ptr
-    /// 
+    ///
     /// # Safety
-    /// `dest_ptr` must have at least 256 bytes available to be overwritten, or else it 
+    /// `dest_ptr` must have at least 256 bytes available to be overwritten, or else it
     /// could produce undefined behavior.
     #[cfg(feature = "rand_core")]
     unsafe fn generate(&mut self, dest_ptr: *mut u8) {

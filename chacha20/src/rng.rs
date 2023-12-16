@@ -311,17 +311,17 @@ macro_rules! impl_chacha_rng {
                     }
                 }
 
-                // Calculate how many bytes we can write full 256-byte chunks to by 
-                // excluding the last 8 bits from `(dest_len - dest_pos)`. Those 8 
+                // Calculate how many bytes we can write full 256-byte chunks to by
+                // excluding the last 8 bits from `(dest_len - dest_pos)`. Those 8
                 // bits can amount to only 255 byte indices since it measures length.
                 let writable_chunk_bytes = (dest_len - dest_pos) & !0xFF;
 
-                // Calculate how many 256-byte chunks are available to write to, 
+                // Calculate how many 256-byte chunks are available to write to,
                 // equivalent to writable_chunk_bytes / 256
                 let num_chunks = writable_chunk_bytes >> 8;
 
-                // SAFETY: This only writes to indices that have not yet been written 
-                // to, and we have determined how many chunks are available to be 
+                // SAFETY: This only writes to indices that have not yet been written
+                // to, and we have determined how many chunks are available to be
                 // written to.
                 unsafe {
                     let mut chunk_ptr = dest.as_mut_ptr();
@@ -380,7 +380,7 @@ macro_rules! impl_chacha_rng {
             #[inline]
             pub fn generate_and_set(&mut self, index: usize) {
                 assert!(index < self.buffer.as_ref().len());
-                // SAFETY: `self.buffer.0` is 256 bytes long, allowing `generate()` 
+                // SAFETY: `self.buffer.0` is 256 bytes long, allowing `generate()`
                 // to be called safely.
                 unsafe {
                     self.core.generate(self.buffer.0.as_mut_ptr() as *mut u8);

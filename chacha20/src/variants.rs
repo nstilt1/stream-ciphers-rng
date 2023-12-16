@@ -1,5 +1,5 @@
 //! Distinguishing features of ChaCha variants.
-//! 
+//!
 //! To be revisited for the 64-bit counter.
 
 /// A trait that distinguishes some ChaCha variants
