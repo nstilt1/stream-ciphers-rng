@@ -102,7 +102,10 @@ impl<R: Rounds> StreamBackend for Backend<R> {
 
     #[inline(always)]
     fn gen_par_ks_blocks(&mut self, blocks: &mut ParBlocks<Self>) {
-        self.write_par_ks_blocks(blocks.as_mut_ptr() as *mut u8);
+        // SAFETY: `ParBlocks` is a 256-byte 2D array.
+        unsafe {
+            self.write_par_ks_blocks(blocks.as_mut_ptr() as *mut u8);
+        }
     }
 }
 
