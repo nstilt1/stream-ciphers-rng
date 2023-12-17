@@ -25,7 +25,11 @@ impl<'a, R: Rounds, V: Variant> ParBlocksSizeUser for Backend<'a, R, V> {
 
 impl<'a, R: Rounds, V: Variant> Backend<'a, R, V> {
     #[inline(always)]
-    /// Generates a single keystream block and writes it to a pointer
+    /// Generates a single keystream block and blindly writes it to `dest_ptr`
+    /// 
+    /// # Safety
+    /// `dest_ptr` must have at least 64 bytes available to be overwritten, or else it 
+    /// could produce undefined behavior
     pub(crate) unsafe fn write_ks_block(&mut self, dest_ptr: *mut u8) {
         let mut block_ptr = dest_ptr as *mut u32;
         let res = run_rounds::<R>(&self.0.state);
@@ -36,7 +40,11 @@ impl<'a, R: Rounds, V: Variant> Backend<'a, R, V> {
             block_ptr = block_ptr.add(1);
         }
     }
-    /// Generates 4 blocks and blindly writes it to the dest_ptr.
+    /// Generates 4 blocks and blindly writes them to `dest_ptr`
+    /// 
+    /// # Safety
+    /// `dest_ptr` must have at least 256 bytes available to be overwritten, or else it 
+    /// could produce undefined behavior
     #[inline(always)]
     #[cfg(feature = "rand_core")]
     pub(crate) unsafe fn rng_gen_ks_blocks(&mut self, mut dest_ptr: *mut u8) {
@@ -52,6 +60,7 @@ impl<'a, R: Rounds, V: Variant> StreamBackend for Backend<'a, R, V> {
     #[inline(always)]
     /// Writes a single block to `block`
     fn gen_ks_block(&mut self, block: &mut Block) {
+        // SAFETY: `Block` is a 64-byte array
         unsafe {
             self.write_ks_block(block.as_mut_ptr());
         }

@@ -66,8 +66,12 @@ where
 #[inline]
 #[cfg(feature = "rand_core")]
 #[target_feature(enable = "sse2")]
-/// Sets up Backend and blindly writes 256 bytes to dest.
-pub(crate) unsafe fn rng_inner<R, V>(core: &mut ChaChaCore<R, V>, mut buffer: *mut u8)
+/// Generates 4 blocks and blindly writes them to `dest_ptr`
+/// 
+/// # Safety
+/// `dest_ptr` must have at least 256 bytes available to be overwritten, or else it 
+/// could produce undefined behavior
+pub(crate) unsafe fn rng_inner<R, V>(core: &mut ChaChaCore<R, V>, mut dest_ptr: *mut u8)
 where
     R: Rounds,
     V: Variant
@@ -75,8 +79,8 @@ where
     let mut backend = Backend::<R>::new(&mut core.state);
 
     for _i in 0..4 {
-        backend.write_ks_block(buffer);
-        buffer = buffer.add(64);
+        backend.write_ks_block(dest_ptr);
+        dest_ptr = dest_ptr.add(64);
     }
 
     core.state[12] = _mm_cvtsi128_si32(backend.v[3]) as u32;
@@ -84,7 +88,11 @@ where
 
 impl<R: Rounds> Backend<R> {
     #[inline(always)]
-    // Blindly writes a generated block to the destination
+    /// Generates a single block and blindly writes it to `dest_ptr`
+    /// 
+    /// # Safety
+    /// `dest_ptr` must have at least 64 bytes available to be overwritten, or else it 
+    /// could produce undefined behavior
     unsafe fn write_ks_block(&mut self, block: *mut u8) {
         let res = rounds::<R>(&self.v);
         self.v[3] = _mm_add_epi32(self.v[3], _mm_set_epi32(0, 0, 0, 1));
@@ -100,6 +108,7 @@ impl<R: Rounds> Backend<R> {
 impl<R: Rounds> StreamBackend for Backend<R> {
     #[inline(always)]
     fn gen_ks_block(&mut self, block: &mut Block) {
+        // SAFETY: `Block` is a 64-byte array
         unsafe {
             self.write_ks_block(block.as_mut_ptr());
         }

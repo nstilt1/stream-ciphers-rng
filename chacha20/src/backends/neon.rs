@@ -56,15 +56,15 @@ where
 #[inline]
 #[cfg(feature = "rand_core")]
 #[target_feature(enable = "neon")]
-/// Sets up backend and blindly writes 4 blocks to dest.
-pub(crate) unsafe fn rng_inner<R, V>(core: &mut ChaChaCore<R, V>, dest: *mut u8)
+/// Sets up backend and blindly writes 4 blocks to dest_ptr.
+pub(crate) unsafe fn rng_inner<R, V>(core: &mut ChaChaCore<R, V>, dest_ptr: *mut u8)
 where
     R: Rounds,
     V: Variant,
 {
     let mut backend = Backend::<R>::new(&mut core.state);
 
-    backend.write_par_ks_blocks(dest);
+    backend.write_par_ks_blocks(dest_ptr);
 
     vst1q_u32(core.state.as_mut_ptr().offset(12), backend.state[3]);
 }
@@ -108,8 +108,12 @@ impl<R: Rounds> StreamBackend for Backend<R> {
 
 impl<R: Rounds> Backend<R> {
     #[inline(always)]
-    /// Processes 4 blocks in parallel, and blindly writes 256 bytes to dest.
-    fn write_par_ks_blocks(&mut self, mut dest: *mut u8) {
+    /// Generates 4 blocks and blindly writes them to `dest_ptr`
+    /// 
+    /// # Safety
+    /// `dest_ptr` must have at least 256 bytes available to be overwritten, or else it 
+    /// could produce undefined behavior
+    unsafe fn write_par_ks_blocks(&mut self, mut dest_ptr: *mut u8) {
         macro_rules! rotate_left {
             ($v:ident, 8) => {{
                 let maskb = [3u8, 0, 1, 2, 7, 4, 5, 6, 11, 8, 9, 10, 15, 12, 13, 14];
@@ -130,236 +134,233 @@ impl<R: Rounds> Backend<R> {
                 vextq_u32($v, $v, $s)
             };
         }
+        let ctrs = [
+            vld1q_u32([1, 0, 0, 0].as_ptr()),
+            vld1q_u32([2, 0, 0, 0].as_ptr()),
+            vld1q_u32([3, 0, 0, 0].as_ptr()),
+            vld1q_u32([4, 0, 0, 0].as_ptr()),
+        ];
 
-        unsafe {
-            let ctrs = [
-                vld1q_u32([1, 0, 0, 0].as_ptr()),
-                vld1q_u32([2, 0, 0, 0].as_ptr()),
-                vld1q_u32([3, 0, 0, 0].as_ptr()),
-                vld1q_u32([4, 0, 0, 0].as_ptr()),
-            ];
+        let mut r0_0 = self.state[0];
+        let mut r0_1 = self.state[1];
+        let mut r0_2 = self.state[2];
+        let mut r0_3 = self.state[3];
 
-            let mut r0_0 = self.state[0];
-            let mut r0_1 = self.state[1];
-            let mut r0_2 = self.state[2];
-            let mut r0_3 = self.state[3];
+        let mut r1_0 = self.state[0];
+        let mut r1_1 = self.state[1];
+        let mut r1_2 = self.state[2];
+        let mut r1_3 = add64!(r0_3, ctrs[0]);
 
-            let mut r1_0 = self.state[0];
-            let mut r1_1 = self.state[1];
-            let mut r1_2 = self.state[2];
-            let mut r1_3 = add64!(r0_3, ctrs[0]);
+        let mut r2_0 = self.state[0];
+        let mut r2_1 = self.state[1];
+        let mut r2_2 = self.state[2];
+        let mut r2_3 = add64!(r0_3, ctrs[1]);
 
-            let mut r2_0 = self.state[0];
-            let mut r2_1 = self.state[1];
-            let mut r2_2 = self.state[2];
-            let mut r2_3 = add64!(r0_3, ctrs[1]);
+        let mut r3_0 = self.state[0];
+        let mut r3_1 = self.state[1];
+        let mut r3_2 = self.state[2];
+        let mut r3_3 = add64!(r0_3, ctrs[2]);
 
-            let mut r3_0 = self.state[0];
-            let mut r3_1 = self.state[1];
-            let mut r3_2 = self.state[2];
-            let mut r3_3 = add64!(r0_3, ctrs[2]);
+        for _ in 0..R::COUNT {
+            r0_0 = vaddq_u32(r0_0, r0_1);
+            r1_0 = vaddq_u32(r1_0, r1_1);
+            r2_0 = vaddq_u32(r2_0, r2_1);
+            r3_0 = vaddq_u32(r3_0, r3_1);
 
-            for _ in 0..R::COUNT {
-                r0_0 = vaddq_u32(r0_0, r0_1);
-                r1_0 = vaddq_u32(r1_0, r1_1);
-                r2_0 = vaddq_u32(r2_0, r2_1);
-                r3_0 = vaddq_u32(r3_0, r3_1);
+            r0_3 = veorq_u32(r0_3, r0_0);
+            r1_3 = veorq_u32(r1_3, r1_0);
+            r2_3 = veorq_u32(r2_3, r2_0);
+            r3_3 = veorq_u32(r3_3, r3_0);
 
-                r0_3 = veorq_u32(r0_3, r0_0);
-                r1_3 = veorq_u32(r1_3, r1_0);
-                r2_3 = veorq_u32(r2_3, r2_0);
-                r3_3 = veorq_u32(r3_3, r3_0);
+            r0_3 = rotate_left!(r0_3, 16);
+            r1_3 = rotate_left!(r1_3, 16);
+            r2_3 = rotate_left!(r2_3, 16);
+            r3_3 = rotate_left!(r3_3, 16);
 
-                r0_3 = rotate_left!(r0_3, 16);
-                r1_3 = rotate_left!(r1_3, 16);
-                r2_3 = rotate_left!(r2_3, 16);
-                r3_3 = rotate_left!(r3_3, 16);
+            r0_2 = vaddq_u32(r0_2, r0_3);
+            r1_2 = vaddq_u32(r1_2, r1_3);
+            r2_2 = vaddq_u32(r2_2, r2_3);
+            r3_2 = vaddq_u32(r3_2, r3_3);
 
-                r0_2 = vaddq_u32(r0_2, r0_3);
-                r1_2 = vaddq_u32(r1_2, r1_3);
-                r2_2 = vaddq_u32(r2_2, r2_3);
-                r3_2 = vaddq_u32(r3_2, r3_3);
+            r0_1 = veorq_u32(r0_1, r0_2);
+            r1_1 = veorq_u32(r1_1, r1_2);
+            r2_1 = veorq_u32(r2_1, r2_2);
+            r3_1 = veorq_u32(r3_1, r3_2);
 
-                r0_1 = veorq_u32(r0_1, r0_2);
-                r1_1 = veorq_u32(r1_1, r1_2);
-                r2_1 = veorq_u32(r2_1, r2_2);
-                r3_1 = veorq_u32(r3_1, r3_2);
+            r0_1 = rotate_left!(r0_1, 12);
+            r1_1 = rotate_left!(r1_1, 12);
+            r2_1 = rotate_left!(r2_1, 12);
+            r3_1 = rotate_left!(r3_1, 12);
 
-                r0_1 = rotate_left!(r0_1, 12);
-                r1_1 = rotate_left!(r1_1, 12);
-                r2_1 = rotate_left!(r2_1, 12);
-                r3_1 = rotate_left!(r3_1, 12);
+            r0_0 = vaddq_u32(r0_0, r0_1);
+            r1_0 = vaddq_u32(r1_0, r1_1);
+            r2_0 = vaddq_u32(r2_0, r2_1);
+            r3_0 = vaddq_u32(r3_0, r3_1);
 
-                r0_0 = vaddq_u32(r0_0, r0_1);
-                r1_0 = vaddq_u32(r1_0, r1_1);
-                r2_0 = vaddq_u32(r2_0, r2_1);
-                r3_0 = vaddq_u32(r3_0, r3_1);
+            r0_3 = veorq_u32(r0_3, r0_0);
+            r1_3 = veorq_u32(r1_3, r1_0);
+            r2_3 = veorq_u32(r2_3, r2_0);
+            r3_3 = veorq_u32(r3_3, r3_0);
 
-                r0_3 = veorq_u32(r0_3, r0_0);
-                r1_3 = veorq_u32(r1_3, r1_0);
-                r2_3 = veorq_u32(r2_3, r2_0);
-                r3_3 = veorq_u32(r3_3, r3_0);
+            r0_3 = rotate_left!(r0_3, 8);
+            r1_3 = rotate_left!(r1_3, 8);
+            r2_3 = rotate_left!(r2_3, 8);
+            r3_3 = rotate_left!(r3_3, 8);
 
-                r0_3 = rotate_left!(r0_3, 8);
-                r1_3 = rotate_left!(r1_3, 8);
-                r2_3 = rotate_left!(r2_3, 8);
-                r3_3 = rotate_left!(r3_3, 8);
+            r0_2 = vaddq_u32(r0_2, r0_3);
+            r1_2 = vaddq_u32(r1_2, r1_3);
+            r2_2 = vaddq_u32(r2_2, r2_3);
+            r3_2 = vaddq_u32(r3_2, r3_3);
 
-                r0_2 = vaddq_u32(r0_2, r0_3);
-                r1_2 = vaddq_u32(r1_2, r1_3);
-                r2_2 = vaddq_u32(r2_2, r2_3);
-                r3_2 = vaddq_u32(r3_2, r3_3);
+            r0_1 = veorq_u32(r0_1, r0_2);
+            r1_1 = veorq_u32(r1_1, r1_2);
+            r2_1 = veorq_u32(r2_1, r2_2);
+            r3_1 = veorq_u32(r3_1, r3_2);
 
-                r0_1 = veorq_u32(r0_1, r0_2);
-                r1_1 = veorq_u32(r1_1, r1_2);
-                r2_1 = veorq_u32(r2_1, r2_2);
-                r3_1 = veorq_u32(r3_1, r3_2);
+            r0_1 = rotate_left!(r0_1, 7);
+            r1_1 = rotate_left!(r1_1, 7);
+            r2_1 = rotate_left!(r2_1, 7);
+            r3_1 = rotate_left!(r3_1, 7);
 
-                r0_1 = rotate_left!(r0_1, 7);
-                r1_1 = rotate_left!(r1_1, 7);
-                r2_1 = rotate_left!(r2_1, 7);
-                r3_1 = rotate_left!(r3_1, 7);
+            r0_1 = extract!(r0_1, 1);
+            r0_2 = extract!(r0_2, 2);
+            r0_3 = extract!(r0_3, 3);
 
-                r0_1 = extract!(r0_1, 1);
-                r0_2 = extract!(r0_2, 2);
-                r0_3 = extract!(r0_3, 3);
+            r1_1 = extract!(r1_1, 1);
+            r1_2 = extract!(r1_2, 2);
+            r1_3 = extract!(r1_3, 3);
 
-                r1_1 = extract!(r1_1, 1);
-                r1_2 = extract!(r1_2, 2);
-                r1_3 = extract!(r1_3, 3);
+            r2_1 = extract!(r2_1, 1);
+            r2_2 = extract!(r2_2, 2);
+            r2_3 = extract!(r2_3, 3);
 
-                r2_1 = extract!(r2_1, 1);
-                r2_2 = extract!(r2_2, 2);
-                r2_3 = extract!(r2_3, 3);
+            r3_1 = extract!(r3_1, 1);
+            r3_2 = extract!(r3_2, 2);
+            r3_3 = extract!(r3_3, 3);
 
-                r3_1 = extract!(r3_1, 1);
-                r3_2 = extract!(r3_2, 2);
-                r3_3 = extract!(r3_3, 3);
+            r0_0 = vaddq_u32(r0_0, r0_1);
+            r1_0 = vaddq_u32(r1_0, r1_1);
+            r2_0 = vaddq_u32(r2_0, r2_1);
+            r3_0 = vaddq_u32(r3_0, r3_1);
 
-                r0_0 = vaddq_u32(r0_0, r0_1);
-                r1_0 = vaddq_u32(r1_0, r1_1);
-                r2_0 = vaddq_u32(r2_0, r2_1);
-                r3_0 = vaddq_u32(r3_0, r3_1);
+            r0_3 = veorq_u32(r0_3, r0_0);
+            r1_3 = veorq_u32(r1_3, r1_0);
+            r2_3 = veorq_u32(r2_3, r2_0);
+            r3_3 = veorq_u32(r3_3, r3_0);
 
-                r0_3 = veorq_u32(r0_3, r0_0);
-                r1_3 = veorq_u32(r1_3, r1_0);
-                r2_3 = veorq_u32(r2_3, r2_0);
-                r3_3 = veorq_u32(r3_3, r3_0);
+            r0_3 = rotate_left!(r0_3, 16);
+            r1_3 = rotate_left!(r1_3, 16);
+            r2_3 = rotate_left!(r2_3, 16);
+            r3_3 = rotate_left!(r3_3, 16);
 
-                r0_3 = rotate_left!(r0_3, 16);
-                r1_3 = rotate_left!(r1_3, 16);
-                r2_3 = rotate_left!(r2_3, 16);
-                r3_3 = rotate_left!(r3_3, 16);
+            r0_2 = vaddq_u32(r0_2, r0_3);
+            r1_2 = vaddq_u32(r1_2, r1_3);
+            r2_2 = vaddq_u32(r2_2, r2_3);
+            r3_2 = vaddq_u32(r3_2, r3_3);
 
-                r0_2 = vaddq_u32(r0_2, r0_3);
-                r1_2 = vaddq_u32(r1_2, r1_3);
-                r2_2 = vaddq_u32(r2_2, r2_3);
-                r3_2 = vaddq_u32(r3_2, r3_3);
+            r0_1 = veorq_u32(r0_1, r0_2);
+            r1_1 = veorq_u32(r1_1, r1_2);
+            r2_1 = veorq_u32(r2_1, r2_2);
+            r3_1 = veorq_u32(r3_1, r3_2);
 
-                r0_1 = veorq_u32(r0_1, r0_2);
-                r1_1 = veorq_u32(r1_1, r1_2);
-                r2_1 = veorq_u32(r2_1, r2_2);
-                r3_1 = veorq_u32(r3_1, r3_2);
+            r0_1 = rotate_left!(r0_1, 12);
+            r1_1 = rotate_left!(r1_1, 12);
+            r2_1 = rotate_left!(r2_1, 12);
+            r3_1 = rotate_left!(r3_1, 12);
 
-                r0_1 = rotate_left!(r0_1, 12);
-                r1_1 = rotate_left!(r1_1, 12);
-                r2_1 = rotate_left!(r2_1, 12);
-                r3_1 = rotate_left!(r3_1, 12);
+            r0_0 = vaddq_u32(r0_0, r0_1);
+            r1_0 = vaddq_u32(r1_0, r1_1);
+            r2_0 = vaddq_u32(r2_0, r2_1);
+            r3_0 = vaddq_u32(r3_0, r3_1);
 
-                r0_0 = vaddq_u32(r0_0, r0_1);
-                r1_0 = vaddq_u32(r1_0, r1_1);
-                r2_0 = vaddq_u32(r2_0, r2_1);
-                r3_0 = vaddq_u32(r3_0, r3_1);
+            r0_3 = veorq_u32(r0_3, r0_0);
+            r1_3 = veorq_u32(r1_3, r1_0);
+            r2_3 = veorq_u32(r2_3, r2_0);
+            r3_3 = veorq_u32(r3_3, r3_0);
 
-                r0_3 = veorq_u32(r0_3, r0_0);
-                r1_3 = veorq_u32(r1_3, r1_0);
-                r2_3 = veorq_u32(r2_3, r2_0);
-                r3_3 = veorq_u32(r3_3, r3_0);
+            r0_3 = rotate_left!(r0_3, 8);
+            r1_3 = rotate_left!(r1_3, 8);
+            r2_3 = rotate_left!(r2_3, 8);
+            r3_3 = rotate_left!(r3_3, 8);
 
-                r0_3 = rotate_left!(r0_3, 8);
-                r1_3 = rotate_left!(r1_3, 8);
-                r2_3 = rotate_left!(r2_3, 8);
-                r3_3 = rotate_left!(r3_3, 8);
+            r0_2 = vaddq_u32(r0_2, r0_3);
+            r1_2 = vaddq_u32(r1_2, r1_3);
+            r2_2 = vaddq_u32(r2_2, r2_3);
+            r3_2 = vaddq_u32(r3_2, r3_3);
 
-                r0_2 = vaddq_u32(r0_2, r0_3);
-                r1_2 = vaddq_u32(r1_2, r1_3);
-                r2_2 = vaddq_u32(r2_2, r2_3);
-                r3_2 = vaddq_u32(r3_2, r3_3);
+            r0_1 = veorq_u32(r0_1, r0_2);
+            r1_1 = veorq_u32(r1_1, r1_2);
+            r2_1 = veorq_u32(r2_1, r2_2);
+            r3_1 = veorq_u32(r3_1, r3_2);
 
-                r0_1 = veorq_u32(r0_1, r0_2);
-                r1_1 = veorq_u32(r1_1, r1_2);
-                r2_1 = veorq_u32(r2_1, r2_2);
-                r3_1 = veorq_u32(r3_1, r3_2);
+            r0_1 = rotate_left!(r0_1, 7);
+            r1_1 = rotate_left!(r1_1, 7);
+            r2_1 = rotate_left!(r2_1, 7);
+            r3_1 = rotate_left!(r3_1, 7);
 
-                r0_1 = rotate_left!(r0_1, 7);
-                r1_1 = rotate_left!(r1_1, 7);
-                r2_1 = rotate_left!(r2_1, 7);
-                r3_1 = rotate_left!(r3_1, 7);
+            r0_1 = extract!(r0_1, 3);
+            r0_2 = extract!(r0_2, 2);
+            r0_3 = extract!(r0_3, 1);
 
-                r0_1 = extract!(r0_1, 3);
-                r0_2 = extract!(r0_2, 2);
-                r0_3 = extract!(r0_3, 1);
+            r1_1 = extract!(r1_1, 3);
+            r1_2 = extract!(r1_2, 2);
+            r1_3 = extract!(r1_3, 1);
 
-                r1_1 = extract!(r1_1, 3);
-                r1_2 = extract!(r1_2, 2);
-                r1_3 = extract!(r1_3, 1);
+            r2_1 = extract!(r2_1, 3);
+            r2_2 = extract!(r2_2, 2);
+            r2_3 = extract!(r2_3, 1);
 
-                r2_1 = extract!(r2_1, 3);
-                r2_2 = extract!(r2_2, 2);
-                r2_3 = extract!(r2_3, 1);
-
-                r3_1 = extract!(r3_1, 3);
-                r3_2 = extract!(r3_2, 2);
-                r3_3 = extract!(r3_3, 1);
-            }
-
-            r0_0 = vaddq_u32(r0_0, self.state[0]);
-            r0_1 = vaddq_u32(r0_1, self.state[1]);
-            r0_2 = vaddq_u32(r0_2, self.state[2]);
-            r0_3 = vaddq_u32(r0_3, self.state[3]);
-
-            r1_0 = vaddq_u32(r1_0, self.state[0]);
-            r1_1 = vaddq_u32(r1_1, self.state[1]);
-            r1_2 = vaddq_u32(r1_2, self.state[2]);
-            r1_3 = vaddq_u32(r1_3, self.state[3]);
-            r1_3 = add64!(r1_3, ctrs[0]);
-
-            r2_0 = vaddq_u32(r2_0, self.state[0]);
-            r2_1 = vaddq_u32(r2_1, self.state[1]);
-            r2_2 = vaddq_u32(r2_2, self.state[2]);
-            r2_3 = vaddq_u32(r2_3, self.state[3]);
-            r2_3 = add64!(r2_3, ctrs[1]);
-
-            r3_0 = vaddq_u32(r3_0, self.state[0]);
-            r3_1 = vaddq_u32(r3_1, self.state[1]);
-            r3_2 = vaddq_u32(r3_2, self.state[2]);
-            r3_3 = vaddq_u32(r3_3, self.state[3]);
-            r3_3 = add64!(r3_3, ctrs[2]);
-
-            vst1q_u8(dest.offset(0), vreinterpretq_u8_u32(r0_0));
-            vst1q_u8(dest.offset(16), vreinterpretq_u8_u32(r0_1));
-            vst1q_u8(dest.offset(2 * 16), vreinterpretq_u8_u32(r0_2));
-            vst1q_u8(dest.offset(3 * 16), vreinterpretq_u8_u32(r0_3));
-
-            dest = dest.add(64);
-            vst1q_u8(dest.offset(0), vreinterpretq_u8_u32(r1_0));
-            vst1q_u8(dest.offset(16), vreinterpretq_u8_u32(r1_1));
-            vst1q_u8(dest.offset(2 * 16), vreinterpretq_u8_u32(r1_2));
-            vst1q_u8(dest.offset(3 * 16), vreinterpretq_u8_u32(r1_3));
-
-            dest = dest.add(64);
-            vst1q_u8(dest.offset(0), vreinterpretq_u8_u32(r2_0));
-            vst1q_u8(dest.offset(16), vreinterpretq_u8_u32(r2_1));
-            vst1q_u8(dest.offset(2 * 16), vreinterpretq_u8_u32(r2_2));
-            vst1q_u8(dest.offset(3 * 16), vreinterpretq_u8_u32(r2_3));
-
-            dest = dest.add(64);
-            vst1q_u8(dest.offset(0), vreinterpretq_u8_u32(r3_0));
-            vst1q_u8(dest.offset(16), vreinterpretq_u8_u32(r3_1));
-            vst1q_u8(dest.offset(2 * 16), vreinterpretq_u8_u32(r3_2));
-            vst1q_u8(dest.offset(3 * 16), vreinterpretq_u8_u32(r3_3));
-
-            self.state[3] = add64!(self.state[3], ctrs[3]);
+            r3_1 = extract!(r3_1, 3);
+            r3_2 = extract!(r3_2, 2);
+            r3_3 = extract!(r3_3, 1);
         }
+
+        r0_0 = vaddq_u32(r0_0, self.state[0]);
+        r0_1 = vaddq_u32(r0_1, self.state[1]);
+        r0_2 = vaddq_u32(r0_2, self.state[2]);
+        r0_3 = vaddq_u32(r0_3, self.state[3]);
+
+        r1_0 = vaddq_u32(r1_0, self.state[0]);
+        r1_1 = vaddq_u32(r1_1, self.state[1]);
+        r1_2 = vaddq_u32(r1_2, self.state[2]);
+        r1_3 = vaddq_u32(r1_3, self.state[3]);
+        r1_3 = add64!(r1_3, ctrs[0]);
+
+        r2_0 = vaddq_u32(r2_0, self.state[0]);
+        r2_1 = vaddq_u32(r2_1, self.state[1]);
+        r2_2 = vaddq_u32(r2_2, self.state[2]);
+        r2_3 = vaddq_u32(r2_3, self.state[3]);
+        r2_3 = add64!(r2_3, ctrs[1]);
+
+        r3_0 = vaddq_u32(r3_0, self.state[0]);
+        r3_1 = vaddq_u32(r3_1, self.state[1]);
+        r3_2 = vaddq_u32(r3_2, self.state[2]);
+        r3_3 = vaddq_u32(r3_3, self.state[3]);
+        r3_3 = add64!(r3_3, ctrs[2]);
+
+        vst1q_u8(dest_ptr.offset(0), vreinterpretq_u8_u32(r0_0));
+        vst1q_u8(dest_ptr.offset(16), vreinterpretq_u8_u32(r0_1));
+        vst1q_u8(dest_ptr.offset(2 * 16), vreinterpretq_u8_u32(r0_2));
+        vst1q_u8(dest_ptr.offset(3 * 16), vreinterpretq_u8_u32(r0_3));
+
+        dest_ptr = dest_ptr.add(64);
+        vst1q_u8(dest_ptr.offset(0), vreinterpretq_u8_u32(r1_0));
+        vst1q_u8(dest_ptr.offset(16), vreinterpretq_u8_u32(r1_1));
+        vst1q_u8(dest_ptr.offset(2 * 16), vreinterpretq_u8_u32(r1_2));
+        vst1q_u8(dest_ptr.offset(3 * 16), vreinterpretq_u8_u32(r1_3));
+
+        dest_ptr = dest_ptr.add(64);
+        vst1q_u8(dest_ptr.offset(0), vreinterpretq_u8_u32(r2_0));
+        vst1q_u8(dest_ptr.offset(16), vreinterpretq_u8_u32(r2_1));
+        vst1q_u8(dest_ptr.offset(2 * 16), vreinterpretq_u8_u32(r2_2));
+        vst1q_u8(dest_ptr.offset(3 * 16), vreinterpretq_u8_u32(r2_3));
+
+        dest_ptr = dest_ptr.add(64);
+        vst1q_u8(dest_ptr.offset(0), vreinterpretq_u8_u32(r3_0));
+        vst1q_u8(dest_ptr.offset(16), vreinterpretq_u8_u32(r3_1));
+        vst1q_u8(dest_ptr.offset(2 * 16), vreinterpretq_u8_u32(r3_2));
+        vst1q_u8(dest_ptr.offset(3 * 16), vreinterpretq_u8_u32(r3_3));
+
+        self.state[3] = add64!(self.state[3], ctrs[3]);
     }
 }

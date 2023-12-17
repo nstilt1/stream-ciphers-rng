@@ -72,14 +72,14 @@ where
 #[cfg(feature = "rand_core")]
 #[target_feature(enable = "avx2")]
 /// Generates 4 blocks and blindly writes them to dest
-pub(crate) unsafe fn rng_inner<R, V>(core: &mut ChaChaCore<R, V>, dest: *mut u8)
+pub(crate) unsafe fn rng_inner<R, V>(core: &mut ChaChaCore<R, V>, dest_ptr: *mut u8)
 where
     R: Rounds,
     V: Variant
 {
     let mut backend = Backend::<R>::new(&mut core.state);
 
-    backend.write_par_ks_blocks(dest);
+    backend.write_par_ks_blocks(dest_ptr);
 
     core.state[12] = _mm256_extract_epi32(backend.ctr[0], 0) as u32;
 }
@@ -115,31 +115,36 @@ impl<R: Rounds> StreamBackend for Backend<R> {
 
     #[inline(always)]
     fn gen_par_ks_blocks(&mut self, blocks: &mut ParBlocks<Self>) {
-        self.write_par_ks_blocks(blocks.as_mut_ptr() as *mut u8);
+        // SAFETY: ParBlocks is a 256-byte 2D array
+        unsafe {
+            self.write_par_ks_blocks(blocks.as_mut_ptr() as *mut u8);
+        }
     }
 }
 
 impl<R: Rounds> Backend<R> {
     #[inline(always)]
-    /// Generates 4 blocks and writes them to dest
-    fn write_par_ks_blocks(&mut self, dest: *mut u8) {
-        unsafe {
-            let vs = rounds::<R>(&self.v, &self.ctr);
+    /// Generates 4 blocks and blindly writes them to `dest_ptr`
+    /// 
+    /// # Safety
+    /// `dest_ptr` must have at least 256 bytes available to be overwritten, or else it 
+    /// could produce undefined behavior
+    unsafe fn write_par_ks_blocks(&mut self, dest_ptr: *mut u8) {
+        let vs = rounds::<R>(&self.v, &self.ctr);
 
-            let pb = PAR_BLOCKS as i32;
-            for c in self.ctr.iter_mut() {
-                *c = _mm256_add_epi32(*c, _mm256_set_epi32(0, 0, 0, pb, 0, 0, 0, pb));
-            }
+        let pb = PAR_BLOCKS as i32;
+        for c in self.ctr.iter_mut() {
+            *c = _mm256_add_epi32(*c, _mm256_set_epi32(0, 0, 0, pb, 0, 0, 0, pb));
+        }
 
-            let mut block_ptr = dest as *mut __m128i;
-            for v in vs {
-                let t: [__m128i; 8] = core::mem::transmute(v);
-                for i in 0..4 {
-                    _mm_storeu_si128(block_ptr.add(i), t[2 * i]);
-                    _mm_storeu_si128(block_ptr.add(4 + i), t[2 * i + 1]);
-                }
-                block_ptr = block_ptr.add(8);
+        let mut block_ptr = dest_ptr as *mut __m128i;
+        for v in vs {
+            let t: [__m128i; 8] = core::mem::transmute(v);
+            for i in 0..4 {
+                _mm_storeu_si128(block_ptr.add(i), t[2 * i]);
+                _mm_storeu_si128(block_ptr.add(4 + i), t[2 * i + 1]);
             }
+            block_ptr = block_ptr.add(8);
         }
     }
 }
