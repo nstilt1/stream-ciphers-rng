@@ -292,6 +292,8 @@ macro_rules! impl_chacha_rng {
             #[inline]
             fn fill_bytes(&mut self, dest: &mut [u8]) {
                 let dest_len = dest.len();
+                // calculate the remaining bytes to fill from `self.buffer`,
+                // indexed by `u32`s
                 let remaining = (256 - (self.index << 2)).min(dest_len);
 
                 let mut dest_pos = 0;
@@ -311,29 +313,25 @@ macro_rules! impl_chacha_rng {
                     }
                 }
 
-                // Calculate how many bytes we can write full 256-byte chunks to by
-                // excluding the last 8 bits from `(dest_len - dest_pos)`. Those 8
-                // bits can amount to only 255 byte indices since it measures length.
-                let writable_chunk_bytes = (dest_len - dest_pos) & !0xFF;
-
-                // Calculate how many 256-byte chunks are available to write to,
-                // equivalent to writable_chunk_bytes / 256
-                let num_chunks = writable_chunk_bytes >> 8;
+                // Calculate how many 256-byte chunks are remaining to write to.
+                // The following line essentially equates to:
+                // floor(remaining_bytes / 256)
+                let num_chunks = (dest_len - dest_pos) >> 8;
 
                 // SAFETY: This only writes to indices that have not yet been written
-                // to, and we have determined how many chunks are available to be
-                // written to.
+                // to, and we have determined how many 256-byte chunks are remaining.
                 unsafe {
                     let mut chunk_ptr = dest.as_mut_ptr();
                     chunk_ptr = chunk_ptr.add(dest_pos);
-                    // This will not run if `num_chunks` is 0
-                    for _i in 0..num_chunks {
+                    for _chunk in 0..num_chunks {
                         self.core.generate(chunk_ptr);
                         chunk_ptr = chunk_ptr.add(256);
                     }
                 }
 
-                dest_pos += writable_chunk_bytes;
+                // Increase `dest_pos` by 256 bytes * `num_chunks` 
+                dest_pos += num_chunks << 8;
+
                 // self.index is currently at the maximum value
                 if dest_pos == dest_len {
                     // dest has been filled
@@ -345,7 +343,6 @@ macro_rules! impl_chacha_rng {
                 let (consumed_u32, _filled_u8) =
                     fill_via_u32_chunks(&self.buffer.as_ref()[self.index..], &mut dest[dest_pos..]);
                 self.index = consumed_u32;
-                return;
             }
 
             #[inline]
