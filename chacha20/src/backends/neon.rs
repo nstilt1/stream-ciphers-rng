@@ -109,9 +109,9 @@ impl<R: Rounds> StreamBackend for Backend<R> {
 impl<R: Rounds> Backend<R> {
     #[inline(always)]
     /// Generates 4 blocks and blindly writes them to `dest_ptr`
-    /// 
+    ///
     /// # Safety
-    /// `dest_ptr` must have at least 256 bytes available to be overwritten, or else it 
+    /// `dest_ptr` must have at least 256 bytes available to be overwritten, or else it
     /// could produce undefined behavior
     unsafe fn write_par_ks_blocks(&mut self, mut dest_ptr: *mut u8) {
         macro_rules! rotate_left {

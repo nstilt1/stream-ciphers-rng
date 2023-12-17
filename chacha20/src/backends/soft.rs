@@ -26,9 +26,9 @@ impl<'a, R: Rounds, V: Variant> ParBlocksSizeUser for Backend<'a, R, V> {
 impl<'a, R: Rounds, V: Variant> Backend<'a, R, V> {
     #[inline(always)]
     /// Generates a single keystream block and blindly writes it to `dest_ptr`
-    /// 
+    ///
     /// # Safety
-    /// `dest_ptr` must have at least 64 bytes available to be overwritten, or else it 
+    /// `dest_ptr` must have at least 64 bytes available to be overwritten, or else it
     /// could produce undefined behavior
     pub(crate) unsafe fn write_ks_block(&mut self, dest_ptr: *mut u8) {
         let mut block_ptr = dest_ptr as *mut u32;
@@ -41,9 +41,9 @@ impl<'a, R: Rounds, V: Variant> Backend<'a, R, V> {
         }
     }
     /// Generates 4 blocks and blindly writes them to `dest_ptr`
-    /// 
+    ///
     /// # Safety
-    /// `dest_ptr` must have at least 256 bytes available to be overwritten, or else it 
+    /// `dest_ptr` must have at least 256 bytes available to be overwritten, or else it
     /// could produce undefined behavior
     #[inline(always)]
     #[cfg(feature = "rand_core")]

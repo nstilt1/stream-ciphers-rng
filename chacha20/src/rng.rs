@@ -329,7 +329,7 @@ macro_rules! impl_chacha_rng {
                     }
                 }
 
-                // Increase `dest_pos` by 256 bytes * `num_chunks` 
+                // Increase `dest_pos` by 256 bytes * `num_chunks`
                 dest_pos += num_chunks << 8;
 
                 // self.index is currently at the maximum value
