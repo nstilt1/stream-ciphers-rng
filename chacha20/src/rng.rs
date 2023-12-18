@@ -125,11 +125,11 @@ impl From<[u8; 5]> for WordPosInput {
 
 impl From<u64> for WordPosInput {
     fn from(value: u64) -> Self {
-        let shifted = (value >> 4).to_le_bytes();
-        let original = value.to_le_bytes();
         let mut result = [0u8; 5];
-        result[4] = original[0];
-        result[0..4].copy_from_slice(&shifted[0..4]);
+        let block_pos = (value >> 4).to_le_bytes();
+        let index_byte = value.to_le_bytes()[0];
+        result[0..4].copy_from_slice(&block_pos[0..4]);
+        result[4] = index_byte;
         Self(result)
     }
 }
