@@ -28,15 +28,15 @@ const BLOCK_WORDS: u8 = 16;
 
 /// Array wrapper used for `BlockRngCore::Results` associated types.
 #[derive(Clone)]
-pub struct BlockRngResults([u32; 64]);
+pub struct BlockRngResults([u32; 16]);
 
 impl BlockRngResults {
-    const LEN: usize = 64;
+    const LEN: usize = 16;
 }
 
 impl Default for BlockRngResults {
     fn default() -> Self {
-        Self([0u32; 64])
+        Self([0u32; 16])
     }
 }
 
@@ -294,7 +294,7 @@ macro_rules! impl_chacha_rng {
                 let dest_len = dest.len();
                 // calculate the remaining bytes to fill from `self.buffer`,
                 // indexed by `u32`s
-                let remaining = (256 - (self.index << 2)).min(dest_len);
+                let remaining = (64 - (self.index << 2)).min(dest_len);
 
                 let mut dest_pos = 0;
                 if remaining != 0 {
@@ -324,8 +324,7 @@ macro_rules! impl_chacha_rng {
                     let mut chunk_ptr = dest.as_mut_ptr();
                     chunk_ptr = chunk_ptr.add(dest_pos);
                     for _chunk in 0..num_chunks {
-                        self.core.generate(chunk_ptr);
-                        chunk_ptr = chunk_ptr.add(256);
+                        self.core.generate(chunk_ptr, num_chunks, core::ptr::null_mut());
                     }
                 }
 
@@ -380,7 +379,8 @@ macro_rules! impl_chacha_rng {
                 // SAFETY: `self.buffer.0` is 256 bytes long, allowing `generate()`
                 // to be called safely.
                 unsafe {
-                    self.core.generate(self.buffer.0.as_mut_ptr() as *mut u8);
+                    //// THIS NEEDS TO BE UPDATED
+                    self.core.generate(self.buffer.0.as_mut_ptr() as *mut u8, 1, core::ptr::null_mut());
                 }
                 self.index = index;
             }

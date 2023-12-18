@@ -51,6 +51,12 @@ impl<R: Rounds> Backend<R> {
             _pd: PhantomData,
         }
     }
+
+    unsafe fn increment_counter(&mut self, amount: i32) {
+        for c in self.ctr.iter_mut() {
+            *c = _mm256_add_epi32(*c, _mm256_set_epi32(0, 0, 0, amount, 0, 0, 0, amount));
+        }
+    }
 }
 
 #[inline]
@@ -71,15 +77,26 @@ where
 #[inline]
 #[cfg(feature = "rand_core")]
 #[target_feature(enable = "avx2")]
-/// Generates 4 blocks and blindly writes them to dest
-pub(crate) unsafe fn rng_inner<R, V>(core: &mut ChaChaCore<R, V>, dest_ptr: *mut u8)
+/// If `dest_ptr` is not null, it writes `num_blocks` blocks to the `dest_ptr`.
+/// If `block_ptr` is not null, it writes one block to the `buffer_ptr`.
+pub(crate) unsafe fn rng_inner<R, V>(core: &mut ChaChaCore<R, V>, mut dest_ptr: *mut u8, num_blocks: usize, buffer_ptr: *mut u8)
 where
     R: Rounds,
     V: Variant
 {
     let mut backend = Backend::<R>::new(&mut core.state);
 
-    backend.write_par_ks_blocks(dest_ptr);
+    let num_chunks = num_blocks >> 2;
+    let remaining_blocks = num_blocks & 0x03;
+    if !dest_ptr.is_null() {
+        for _chunk in 0..num_chunks {
+            backend.write_par_ks_blocks(dest_ptr, 4);
+            dest_ptr = dest_ptr.add(256);
+        }
+        if remaining_blocks > 0 {
+            backend.write_par_ks_blocks(dest_ptr, remaining_blocks);
+        }
+    }
 
     core.state[12] = _mm256_extract_epi32(backend.ctr[0], 0) as u32;
 }
@@ -100,9 +117,8 @@ impl<R: Rounds> StreamBackend for Backend<R> {
     fn gen_ks_block(&mut self, block: &mut Block) {
         unsafe {
             let res = rounds::<R>(&self.v, &self.ctr);
-            for c in self.ctr.iter_mut() {
-                *c = _mm256_add_epi32(*c, _mm256_set_epi32(0, 0, 0, 1, 0, 0, 0, 1));
-            }
+
+            self.increment_counter(1);
 
             let res0: [__m128i; 8] = core::mem::transmute(res[0]);
 
@@ -117,34 +133,57 @@ impl<R: Rounds> StreamBackend for Backend<R> {
     fn gen_par_ks_blocks(&mut self, blocks: &mut ParBlocks<Self>) {
         // SAFETY: `ParBlocks` is a 256-byte 2D array.
         unsafe {
-            self.write_par_ks_blocks(blocks.as_mut_ptr() as *mut u8);
+            self.write_par_ks_blocks(blocks.as_mut_ptr() as *mut u8, 4);
         }
     }
 }
 
+/// Extracts 1 block from a [__m256i; 4]
+macro_rules! extract_1_block {
+    ($block_ptr:expr, $block_pair:expr) => {
+        let t: [__m128i; 8] = core::mem::transmute($block_pair);
+        for i in 0..4 {
+            _mm_storeu_si128($block_ptr.add(i), t[i << 1]);
+        }
+    };
+}
+
+/// Extracts 2 blocks from a [__m256i; 4]
+macro_rules! extract_2_blocks {
+    ($block_ptr:expr, $block_pair:expr) => {
+        let t: [__m128i; 8] = core::mem::transmute($block_pair);
+        for i in 0..4 {
+            _mm_storeu_si128($block_ptr.add(i), t[i<<1]);
+            _mm_storeu_si128($block_ptr.add(4+i), t[(i<<1) + 1]);
+        }
+        $block_ptr = $block_ptr.add(8);
+    };
+}
+
 impl<R: Rounds> Backend<R> {
     #[inline(always)]
-    /// Generates 4 blocks and blindly writes them to `dest_ptr`
+    /// Blindly writes up to 4 blocks to `dest_ptr`
     /// 
     /// # Safety
     /// `dest_ptr` must have at least 256 bytes available to be overwritten, or else it 
     /// could produce undefined behavior
-    unsafe fn write_par_ks_blocks(&mut self, dest_ptr: *mut u8) {
+    unsafe fn write_par_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
+        assert!(num_blocks <= PAR_BLOCKS, "num_blocks must be less or equal to 4 in avx2::write_par_ks_blocks()");
         let vs = rounds::<R>(&self.v, &self.ctr);
-
-        let pb = PAR_BLOCKS as i32;
-        for c in self.ctr.iter_mut() {
-            *c = _mm256_add_epi32(*c, _mm256_set_epi32(0, 0, 0, pb, 0, 0, 0, pb));
-        }
+        
+        self.increment_counter(num_blocks as i32);
 
         let mut block_ptr = dest_ptr as *mut __m128i;
-        for v in vs {
-            let t: [__m128i; 8] = core::mem::transmute(v);
-            for i in 0..4 {
-                _mm_storeu_si128(block_ptr.add(i), t[2 * i]);
-                _mm_storeu_si128(block_ptr.add(4 + i), t[2 * i + 1]);
+
+        if num_blocks >= 2 {
+            extract_2_blocks!(block_ptr, vs[0]);
+            if num_blocks == 4 {
+                extract_2_blocks!(block_ptr, vs[1]);
+            }else if num_blocks == 3 {
+                extract_1_block!(block_ptr, vs[1]);
             }
-            block_ptr = block_ptr.add(8);
+        }else if num_blocks == 1 {
+            extract_1_block!(block_ptr, vs[0]);
         }
     }
 }
