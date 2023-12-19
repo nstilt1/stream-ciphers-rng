@@ -124,11 +124,11 @@ impl<R: Rounds> StreamBackend for Backend<R> {
 impl<R: Rounds> Backend<R> {
     #[inline(always)]
     /// Generates `num_blocks` blocks and blindly writes them to `dest_ptr`
-    /// 
+    ///
     /// `num_blocks` must be less than or equal to 4.
     ///
     /// # Safety
-    /// `dest_ptr` must have at least `64 * num_blocks` bytes available to be 
+    /// `dest_ptr` must have at least `64 * num_blocks` bytes available to be
     /// overwritten, or else it could produce undefined behavior
     unsafe fn write_par_ks_blocks(&mut self, mut dest_ptr: *mut u8, num_blocks: usize) {
         macro_rules! rotate_left {
