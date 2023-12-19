@@ -66,11 +66,11 @@ where
 #[inline]
 #[cfg(feature = "rand_core")]
 #[target_feature(enable = "sse2")]
-/// Generates 4 blocks and blindly writes them to `dest_ptr`
+/// Generates `num_blocks * 64` bytes and blindly writes them to `dest_ptr`
 /// 
 /// # Safety
-/// `dest_ptr` must have at least 256 bytes available to be overwritten, or else it 
-/// could produce undefined behavior
+/// `dest_ptr` must have at least `num_blocks * 4` bytes available to be 
+/// overwritten, or else it could produce undefined behavior
 pub(crate) unsafe fn rng_inner<R, V>(core: &mut ChaChaCore<R, V>, mut dest_ptr: *mut u8, num_blocks: usize)
 where
     R: Rounds,

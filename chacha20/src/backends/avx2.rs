@@ -75,28 +75,6 @@ where
     state[12] = _mm256_extract_epi32(backend.ctr[0], 0) as u32;
 }
 
-/// Extracts 1 block of output from a [__m256i; 4]
-macro_rules! extract_1_block {
-    ($block_ptr:expr, $block_pair:expr) => {
-        let t: [__m128i; 8] = core::mem::transmute($block_pair);
-        for i in 0..4 {
-            _mm_storeu_si128($block_ptr.add(i), t[i << 1]);
-        }
-    };
-}
-
-/// Extracts 2 blocks of output from a [__m256i; 4]
-macro_rules! extract_2_blocks {
-    ($block_ptr:expr, $block_pair:expr) => {
-        let t: [__m128i; 8] = core::mem::transmute($block_pair);
-        for i in 0..4 {
-            _mm_storeu_si128($block_ptr.add(i), t[i<<1]);
-            _mm_storeu_si128($block_ptr.add(4+i), t[(i<<1) + 1]);
-        }
-        $block_ptr = $block_ptr.add(8);
-    };
-}
-
 #[inline]
 #[cfg(feature = "rand_core")]
 #[target_feature(enable = "avx2")]
@@ -150,12 +128,34 @@ impl<R: Rounds> StreamBackend for Backend<R> {
     }
 }
 
+/// Extracts 1 block of output from a [__m256i; 4]
+macro_rules! extract_1_block {
+    ($block_ptr:expr, $block_pair:expr) => {
+        let t: [__m128i; 8] = core::mem::transmute($block_pair);
+        for i in 0..4 {
+            _mm_storeu_si128($block_ptr.add(i), t[i << 1]);
+        }
+    };
+}
+
+/// Extracts 2 blocks of output from a [__m256i; 4]
+macro_rules! extract_2_blocks {
+    ($block_ptr:expr, $block_pair:expr) => {
+        let t: [__m128i; 8] = core::mem::transmute($block_pair);
+        for i in 0..4 {
+            _mm_storeu_si128($block_ptr.add(i), t[i<<1]);
+            _mm_storeu_si128($block_ptr.add(4+i), t[(i<<1) + 1]);
+        }
+        $block_ptr = $block_ptr.add(8);
+    };
+}
+
 impl<R: Rounds> Backend<R> {
     #[inline(always)]
-    /// Generates 4 blocks and blindly writes them to `dest_ptr`
+    /// Generates `num_blocks` blocks and blindly writes them to `dest_ptr`
     /// 
     /// # Safety
-    /// `dest_ptr` must have at least 256 bytes available to be overwritten, or else it 
+    /// `dest_ptr` must have at least `num_blocks * 64` bytes available to be overwritten, or else it 
     /// could produce undefined behavior
     unsafe fn write_par_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
         assert!(num_blocks <= PAR_BLOCKS, "num_blocks in avx2::write_par_ks_blocks must be <= 4");

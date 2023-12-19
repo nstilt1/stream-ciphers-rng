@@ -313,7 +313,7 @@ macro_rules! impl_chacha_rng {
                 let num_blocks = (dest_len - dest_pos) >> 6;
 
                 // SAFETY: This only writes to indices that have not yet been written
-                // to, and we have determined how many 64-byte chunks are remaining.
+                // to, and we have determined how many 64-byte blocks are remaining.
                 unsafe {
                     let mut chunk_ptr = dest.as_mut_ptr();
                     chunk_ptr = chunk_ptr.add(dest_pos);
@@ -368,10 +368,11 @@ macro_rules! impl_chacha_rng {
             #[inline]
             pub fn generate_and_set(&mut self, index: usize) {
                 assert!(index < self.buffer.as_ref().len());
-                // SAFETY: `self.buffer.0` is 256 bytes long, allowing `generate()`
-                // to be called safely.
+                // SAFETY: `self.buffer` is `BUFFER_SIZE words / 16 words per block`
+                // blocks long, allowing `generate()` to be called safely.
                 unsafe {
-                    self.core.generate(self.buffer.as_mut_ptr() as *mut u8, BUFFER_SIZE >> 4);
+                    self.core
+                        .generate(self.buffer.as_mut_ptr() as *mut u8, BUFFER_SIZE >> 4);
                 }
                 self.index = index;
             }
@@ -606,12 +607,6 @@ mod tests {
             bytes,
             [167, 163, 252, 19, 79, 20, 152, 128, 232, 187, 43, 93, 35]
         );
-    }
-
-    fn expend_u32(rng: &mut ChaCha20Rng, amount: usize) {
-        for _i in 0..amount {
-            rng.next_u32();
-        }
     }
 
     #[test]

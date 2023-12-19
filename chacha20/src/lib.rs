@@ -206,7 +206,6 @@ cfg_if! {
             }
         }
     } else {
-        if #[cfg(chacha20)]
         type Tokens = ();
     }
 }
@@ -266,7 +265,7 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
         }
     }
 
-    /// Generates `num_blocks` blocks of output to `dest_ptr`.
+    /// Generates `num_blocks` blocks of output and writes them `dest_ptr`.
     ///
     /// # Safety
     /// - `dest_ptr` must have `num_blocks * 64 bytes` available to be overwritten.

@@ -57,14 +57,26 @@ where
 #[cfg(feature = "rand_core")]
 #[target_feature(enable = "neon")]
 /// Sets up backend and blindly writes 4 blocks to dest_ptr.
-pub(crate) unsafe fn rng_inner<R, V>(core: &mut ChaChaCore<R, V>, dest_ptr: *mut u8)
-where
+pub(crate) unsafe fn rng_inner<R, V>(
+    core: &mut ChaChaCore<R, V>,
+    mut dest_ptr: *mut u8,
+    num_blocks: usize,
+) where
     R: Rounds,
     V: Variant,
 {
     let mut backend = Backend::<R>::new(&mut core.state);
 
-    backend.write_par_ks_blocks(dest_ptr);
+    let num_chunks = num_blocks >> 2;
+    let remaining = num_blocks & 0x03;
+
+    for _chunk in 0..num_chunks {
+        backend.write_par_ks_blocks(dest_ptr, 4);
+        dest_ptr = dest_ptr.add(256);
+    }
+    if remaining > 0 {
+        backend.write_par_ks_blocks(dest_ptr, remaining);
+    }
 
     vst1q_u32(core.state.as_mut_ptr().offset(12), backend.state[3]);
 }
@@ -104,19 +116,21 @@ impl<R: Rounds> StreamBackend for Backend<R> {
     fn gen_par_ks_blocks(&mut self, blocks: &mut ParBlocks<Self>) {
         // SAFETY: `ParBlocks` is a 256-byte 2D array.
         unsafe {
-            self.write_par_ks_blocks(blocks.as_mut_ptr() as *mut u8);
+            self.write_par_ks_blocks(blocks.as_mut_ptr() as *mut u8, 4);
         }
     }
 }
 
 impl<R: Rounds> Backend<R> {
     #[inline(always)]
-    /// Generates 4 blocks and blindly writes them to `dest_ptr`
+    /// Generates `num_blocks` blocks and blindly writes them to `dest_ptr`
+    /// 
+    /// `num_blocks` must be less than or equal to 4.
     ///
     /// # Safety
-    /// `dest_ptr` must have at least 256 bytes available to be overwritten, or else it
-    /// could produce undefined behavior
-    unsafe fn write_par_ks_blocks(&mut self, mut dest_ptr: *mut u8) {
+    /// `dest_ptr` must have at least `64 * num_blocks` bytes available to be 
+    /// overwritten, or else it could produce undefined behavior
+    unsafe fn write_par_ks_blocks(&mut self, mut dest_ptr: *mut u8, num_blocks: usize) {
         macro_rules! rotate_left {
             ($v:ident, 8) => {{
                 let maskb = [3u8, 0, 1, 2, 7, 4, 5, 6, 11, 8, 9, 10, 15, 12, 13, 14];
@@ -341,29 +355,45 @@ impl<R: Rounds> Backend<R> {
         r3_3 = vaddq_u32(r3_3, self.state[3]);
         r3_3 = add64!(r3_3, ctrs[2]);
 
-        vst1q_u8(dest_ptr.offset(0), vreinterpretq_u8_u32(r0_0));
-        vst1q_u8(dest_ptr.offset(16), vreinterpretq_u8_u32(r0_1));
-        vst1q_u8(dest_ptr.offset(2 * 16), vreinterpretq_u8_u32(r0_2));
-        vst1q_u8(dest_ptr.offset(3 * 16), vreinterpretq_u8_u32(r0_3));
+        if num_blocks >= 1 {
+            vst1q_u8(dest_ptr.offset(0), vreinterpretq_u8_u32(r0_0));
+            vst1q_u8(dest_ptr.offset(16), vreinterpretq_u8_u32(r0_1));
+            vst1q_u8(dest_ptr.offset(2 * 16), vreinterpretq_u8_u32(r0_2));
+            vst1q_u8(dest_ptr.offset(3 * 16), vreinterpretq_u8_u32(r0_3));
 
-        dest_ptr = dest_ptr.add(64);
-        vst1q_u8(dest_ptr.offset(0), vreinterpretq_u8_u32(r1_0));
-        vst1q_u8(dest_ptr.offset(16), vreinterpretq_u8_u32(r1_1));
-        vst1q_u8(dest_ptr.offset(2 * 16), vreinterpretq_u8_u32(r1_2));
-        vst1q_u8(dest_ptr.offset(3 * 16), vreinterpretq_u8_u32(r1_3));
+            dest_ptr = dest_ptr.add(64);
+        }
+        if num_blocks >= 2 {
+            vst1q_u8(dest_ptr.offset(0), vreinterpretq_u8_u32(r1_0));
+            vst1q_u8(dest_ptr.offset(16), vreinterpretq_u8_u32(r1_1));
+            vst1q_u8(dest_ptr.offset(2 * 16), vreinterpretq_u8_u32(r1_2));
+            vst1q_u8(dest_ptr.offset(3 * 16), vreinterpretq_u8_u32(r1_3));
 
-        dest_ptr = dest_ptr.add(64);
-        vst1q_u8(dest_ptr.offset(0), vreinterpretq_u8_u32(r2_0));
-        vst1q_u8(dest_ptr.offset(16), vreinterpretq_u8_u32(r2_1));
-        vst1q_u8(dest_ptr.offset(2 * 16), vreinterpretq_u8_u32(r2_2));
-        vst1q_u8(dest_ptr.offset(3 * 16), vreinterpretq_u8_u32(r2_3));
+            dest_ptr = dest_ptr.add(64);
+        } else {
+            self.state[3] = add64!(self.state[3], ctrs[0]);
+            return;
+        }
+        if num_blocks >= 3 {
+            vst1q_u8(dest_ptr.offset(0), vreinterpretq_u8_u32(r2_0));
+            vst1q_u8(dest_ptr.offset(16), vreinterpretq_u8_u32(r2_1));
+            vst1q_u8(dest_ptr.offset(2 * 16), vreinterpretq_u8_u32(r2_2));
+            vst1q_u8(dest_ptr.offset(3 * 16), vreinterpretq_u8_u32(r2_3));
 
-        dest_ptr = dest_ptr.add(64);
-        vst1q_u8(dest_ptr.offset(0), vreinterpretq_u8_u32(r3_0));
-        vst1q_u8(dest_ptr.offset(16), vreinterpretq_u8_u32(r3_1));
-        vst1q_u8(dest_ptr.offset(2 * 16), vreinterpretq_u8_u32(r3_2));
-        vst1q_u8(dest_ptr.offset(3 * 16), vreinterpretq_u8_u32(r3_3));
+            dest_ptr = dest_ptr.add(64);
+        } else {
+            self.state[3] = add64!(self.state[3], ctrs[1]);
+            return;
+        }
+        if num_blocks == 4 {
+            vst1q_u8(dest_ptr.offset(0), vreinterpretq_u8_u32(r3_0));
+            vst1q_u8(dest_ptr.offset(16), vreinterpretq_u8_u32(r3_1));
+            vst1q_u8(dest_ptr.offset(2 * 16), vreinterpretq_u8_u32(r3_2));
+            vst1q_u8(dest_ptr.offset(3 * 16), vreinterpretq_u8_u32(r3_3));
 
-        self.state[3] = add64!(self.state[3], ctrs[3]);
+            self.state[3] = add64!(self.state[3], ctrs[3]);
+        } else {
+            self.state[3] = add64!(self.state[3], ctrs[2]);
+        }
     }
 }
