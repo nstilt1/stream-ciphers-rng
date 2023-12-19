@@ -323,7 +323,8 @@ macro_rules! impl_chacha_rng {
                 // Increase `dest_pos` by 64 bytes * `num_chunks`
                 dest_pos += num_blocks << 6;
 
-                // self.index is currently at the maximum value
+                // index is still at the maximum value, so there's no need to 
+                // to generate bytes to the buffer yet
                 if dest_pos == dest_len {
                     // dest has been filled
                     return;

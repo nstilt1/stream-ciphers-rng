@@ -1,6 +1,7 @@
 # Benchmarks for chacha20 using Soft implementation
-These benches were ran on 12/16/2023 using a 3.0 GHz i9 CPU, immediately after a restart. Prior to the restart, it was slightly slower.
-Last commit: 378303a
+These benches were ran on 12/16/2023 using a 3.0 GHz i9 CPU.
+This bench is compared against the last one, commit: 378303a
+This commit: 97cdfc5
 
 ## ChaCha20::apply_keystream()
 ```
@@ -37,29 +38,34 @@ Found 4 outliers among 100 measurements (4.00%)
 ## ChaCha20Rng::fill_bytes()
 ```
 ChaCha20Rng/fill_bytes/1024
-                        time:   [4915.1026 cycles 4929.8101 cycles 4944.1027 cycles]
-                        thrpt:  [4.8282 cpb 4.8143 cpb 4.7999 cpb]
-ChaCha20Rng/fill_bytes/2048
-                        time:   [9720.4919 cycles 9744.1491 cycles 9770.4277 cycles]
-                        thrpt:  [4.7707 cpb 4.7579 cpb 4.7463 cpb]
-Found 5 outliers among 100 measurements (5.00%)
+                        time:   [4776.0768 cycles 4782.4926 cycles 4789.9293 cycles]
+                        thrpt:  [4.6777 cpb 4.6704 cpb 4.6641 cpb]
+Found 7 outliers among 100 measurements (7.00%)
+  1 (1.00%) low mild
   4 (4.00%) high mild
-  1 (1.00%) high severe
+  2 (2.00%) high severe
+ChaCha20Rng/fill_bytes/2048
+                        time:   [9558.4517 cycles 9580.1423 cycles 9605.0202 cycles]
+                        thrpt:  [4.6900 cpb 4.6778 cpb 4.6672 cpb]
+Found 6 outliers among 100 measurements (6.00%)
+  3 (3.00%) high mild
+  3 (3.00%) high severe
 ChaCha20Rng/fill_bytes/4096
-                        time:   [19401.4572 cycles 19447.2252 cycles 19504.3730 cycles]
-                        thrpt:  [4.7618 cpb 4.7479 cpb 4.7367 cpb]
-Found 8 outliers among 100 measurements (8.00%)
-  6 (6.00%) high mild
+                        time:   [19130.0705 cycles 19161.2837 cycles 19194.4355 cycles]
+                        thrpt:  [4.6861 cpb 4.6780 cpb 4.6704 cpb]
+Found 6 outliers among 100 measurements (6.00%)
+  4 (4.00%) high mild
   2 (2.00%) high severe
 ChaCha20Rng/fill_bytes/8192
-                        time:   [38750.0171 cycles 38822.3414 cycles 38899.3476 cycles]
-                        thrpt:  [4.7485 cpb 4.7391 cpb 4.7302 cpb]
-Found 8 outliers among 100 measurements (8.00%)
-  8 (8.00%) high mild
+                        time:   [38283.9441 cycles 38339.5541 cycles 38396.3487 cycles]
+                        thrpt:  [4.6871 cpb 4.6801 cpb 4.6733 cpb]
+Found 5 outliers among 100 measurements (5.00%)
+  2 (2.00%) high mild
+  3 (3.00%) high severe
 ChaCha20Rng/fill_bytes/16384
-                        time:   [77530.9385 cycles 77699.9591 cycles 77888.0939 cycles]
-                        thrpt:  [4.7539 cpb 4.7424 cpb 4.7321 cpb]
-Found 9 outliers among 100 measurements (9.00%)
-  5 (5.00%) high mild
-  4 (4.00%) high severe
+                        time:   [76550.5142 cycles 76703.3393 cycles 76871.7348 cycles]
+                        thrpt:  [4.6919 cpb 4.6816 cpb 4.6723 cpb]
+Found 7 outliers among 100 measurements (7.00%)
+  2 (2.00%) high mild
+  5 (5.00%) high severe
 ```
