@@ -686,7 +686,8 @@ mod tests {
                         if t != expected {
                             panic!(
                                 "Failed test at start_word_pos = {},\nfailed index: {:?}",
-                                rng.get_word_pos(), index
+                                rng.get_word_pos(),
+                                index
                             );
                         }
                     }
