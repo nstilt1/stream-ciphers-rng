@@ -3,7 +3,8 @@
 use cipher::{
     consts::{U16, U24, U32, U64},
     generic_array::GenericArray,
-    IvSizeUser, KeyIvInit, KeySizeUser, StreamCipherCoreWrapper, BlockSizeUser, StreamCipherCore, StreamClosure, StreamCipherSeekCore,
+    BlockSizeUser, IvSizeUser, KeyIvInit, KeySizeUser, StreamCipherCore, StreamCipherCoreWrapper,
+    StreamCipherSeekCore, StreamClosure,
 };
 
 #[cfg(feature = "zeroize")]
