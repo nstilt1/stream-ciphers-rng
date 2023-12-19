@@ -628,14 +628,102 @@ mod tests {
     fn test_set_and_get_equivalence() {
         let seed = [44u8; 32];
         let mut rng = ChaCha20Rng::from_seed(seed.into());
-        let stream = 1337 as u128;
-        rng.set_stream(stream);
-        let word_pos = 35534 as u64;
-        rng.set_word_pos(word_pos);
 
         assert_eq!(rng.get_seed(), seed);
-        assert_eq!(rng.get_stream(), stream);
-        assert_eq!(rng.get_word_pos(), word_pos);
+        for stream in 0..1024 {
+            rng.set_stream(stream as u128);
+            assert_eq!(rng.get_stream(), stream as u128);
+        }
+        for word_pos in 0..1024 {
+            rng.set_word_pos(word_pos);
+        }
+    }
+
+    #[test]
+    /// Testing the edge cases of `fill_bytes()` by brute-forcing it with dest sizes
+    /// that start at 1, and increase by 1 up to `N`, then they decrease from `N-1`
+    /// to 1, and this can repeat multiple times if desired.
+    ///
+    /// This test uses `rand_chacha v0.3.1` because this version's API is directly
+    /// based on `rand_chacha v0.3.1`, and previous versions of `chacha20` could be
+    /// affected by rust flags for changing the backend. Also, it doesn't seem to work
+    /// with `chacha20 v0.8`
+    ///
+    /// Because this test uses `rand_chacha v0.3.1` which uses a 64-bit counter, these
+    /// test results should be accurate up to `block_pos = 2^32 - 1`.
+    fn test_fill_bytes_v2() {
+        use rand_chacha::ChaCha20Rng as TesterRng;
+
+        let mut rng = ChaChaRng::from_seed([0u8; 32]);
+        let mut tester_rng = TesterRng::from_seed([0u8; 32]);
+
+        let num_iterations = 32;
+
+        for _iteration in 0..num_iterations {
+            // If N is too large, it could cause stack overflow.
+            // With N = 1445, the arrays are 1044735 bytes each, or 0.9963 MiB
+            const N: usize = 1000;
+            // compute the sum from 1 to N, with increments of 1
+            const LEN: usize = (N * (N + 1)) >> 1;
+
+            let mut test_array = [0u8; LEN];
+            let mut tester_array = [0u8; LEN];
+
+            let mut dest_pos = 0;
+            let mut start_word_pos;
+            // test fill_bytes with destinations starting at 1 byte, increasing by 1,
+            // up to N-1 bytes
+            for test_len in 1..N {
+                let end_pos = dest_pos + test_len;
+                rng.fill_bytes(&mut test_array[dest_pos..end_pos]);
+                tester_rng.fill_bytes(&mut tester_array[dest_pos..end_pos]);
+
+                if test_array[dest_pos..end_pos] != tester_array[dest_pos..end_pos] {
+                    for (t, (index, expected)) in test_array[dest_pos..end_pos]
+                        .iter()
+                        .zip(tester_array[dest_pos..end_pos].iter().enumerate())
+                    {
+                        if t != expected {
+                            panic!(
+                                "Failed test at start_word_pos = {},\nfailed index: {:?}",
+                                rng.get_word_pos(), index
+                            );
+                        }
+                    }
+                }
+                assert_eq!(rng.next_u32(), tester_rng.next_u32());
+
+                dest_pos = end_pos;
+            }
+            test_array = [0u8; LEN];
+            tester_array = [0u8; LEN];
+            dest_pos = 0;
+
+            // test fill_bytes with destinations starting at N-1 bytes, decreasing by 1,
+            // down to 1 byte
+            for test_len in 1..N {
+                start_word_pos = rng.get_word_pos();
+                let end_pos = dest_pos + N - test_len;
+                rng.fill_bytes(&mut test_array[dest_pos..end_pos]);
+                tester_rng.fill_bytes(&mut tester_array[dest_pos..end_pos]);
+
+                if test_array[dest_pos..end_pos] != tester_array[dest_pos..end_pos] {
+                    for (t, (index, expected)) in test_array[dest_pos..end_pos]
+                        .iter()
+                        .zip(tester_array[dest_pos..end_pos].iter().enumerate())
+                    {
+                        if t != expected {
+                            panic!(
+                                "Failed test at start_word_pos = {},\nfailed index: {:?}",
+                                start_word_pos, index
+                            );
+                        }
+                    }
+                }
+                assert_eq!(rng.next_u32(), tester_rng.next_u32());
+                dest_pos = end_pos;
+            }
+        }
     }
 
     #[cfg(feature = "serde1")]
