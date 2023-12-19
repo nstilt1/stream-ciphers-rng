@@ -21,3 +21,7 @@ criterion-cycles-per-byte = "0.6.0"
 name = "chacha20"
 path = "src/chacha20.rs"
 harness = false
+
+[[bench]]
+name = "hc-256"
+path = "src/hc-256"

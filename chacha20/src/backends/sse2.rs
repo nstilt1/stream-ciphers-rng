@@ -71,14 +71,14 @@ where
 /// # Safety
 /// `dest_ptr` must have at least 256 bytes available to be overwritten, or else it 
 /// could produce undefined behavior
-pub(crate) unsafe fn rng_inner<R, V>(core: &mut ChaChaCore<R, V>, mut dest_ptr: *mut u8)
+pub(crate) unsafe fn rng_inner<R, V>(core: &mut ChaChaCore<R, V>, mut dest_ptr: *mut u8, num_blocks: usize)
 where
     R: Rounds,
     V: Variant
 {
     let mut backend = Backend::<R>::new(&mut core.state);
 
-    for _i in 0..4 {
+    for _i in 0..num_blocks {
         backend.write_ks_block(dest_ptr);
         dest_ptr = dest_ptr.add(64);
     }

@@ -47,8 +47,8 @@ impl<'a, R: Rounds, V: Variant> Backend<'a, R, V> {
     /// could produce undefined behavior
     #[inline(always)]
     #[cfg(feature = "rand_core")]
-    pub(crate) unsafe fn rng_gen_ks_blocks(&mut self, mut dest_ptr: *mut u8) {
-        for _i in 0..4 {
+    pub(crate) unsafe fn rng_gen_ks_blocks(&mut self, mut dest_ptr: *mut u8, num_blocks: usize) {
+        for _i in 0..num_blocks {
             self.write_ks_block(dest_ptr);
             dest_ptr = dest_ptr.add(64);
         }
