@@ -1,6 +1,7 @@
 # Benchmarks for chacha20 using AVX2
-These benches were ran on 12/16/2023 using a 3.0 GHz i9 CPU, immediately after a restart. Prior to the restart, it was slightly slower.
-Last commit: 378303a
+These benches were ran on 12/18/2023 using a 3.0 GHz i9 CPU.
+This bench is compared against the last one, commit: 378303a
+This commit: 97cdfc5
 
 ## ChaCha20::apply_keystream()
 ```
