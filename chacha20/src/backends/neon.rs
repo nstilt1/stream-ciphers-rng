@@ -131,7 +131,10 @@ impl<R: Rounds> Backend<R> {
     /// `dest_ptr` must have at least `64 * num_blocks` bytes available to be
     /// overwritten, or else it could produce undefined behavior
     unsafe fn write_par_ks_blocks(&mut self, mut dest_ptr: *mut u8, num_blocks: usize) {
-        assert!(num_blocks <= PAR_BLOCKS, "neon::write_par_ks_blocks() error: num_blocks must be <= 4");
+        assert!(
+            num_blocks <= 4,
+            "neon::write_par_ks_blocks() error: num_blocks must be <= 4"
+        );
         macro_rules! rotate_left {
             ($v:ident, 8) => {{
                 let maskb = [3u8, 0, 1, 2, 7, 4, 5, 6, 11, 8, 9, 10, 15, 12, 13, 14];
