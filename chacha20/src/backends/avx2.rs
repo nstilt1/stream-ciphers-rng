@@ -53,6 +53,7 @@ impl<R: Rounds> Backend<R> {
     }
 
     /// Increments the counter by `amount`
+    #[inline]
     unsafe fn increment_counter(&mut self, amount: i32) {
         for c in self.ctr.iter_mut() {
             *c = _mm256_add_epi32(*c, _mm256_set_epi32(0, 0, 0, amount, 0, 0, 0, amount));
@@ -164,18 +165,18 @@ impl<R: Rounds> Backend<R> {
         
         self.increment_counter(num_blocks as i32);
 
-        let mut block_ptr = dest_ptr as *mut __m128i;
+        let mut _block_ptr = dest_ptr as *mut __m128i;
 
         // extract up to 4 blocks
         if num_blocks >= 2 {
-            extract_2_blocks!(block_ptr, vs[0]);
+            extract_2_blocks!(_block_ptr, vs[0]);
             if num_blocks == 4 {
-                extract_2_blocks!(block_ptr, vs[1]);
+                extract_2_blocks!(_block_ptr, vs[1]);
             }else if num_blocks == 3 {
-                extract_1_block!(block_ptr, vs[1]);
+                extract_1_block!(_block_ptr, vs[1]);
             }
         }else if num_blocks == 1 {
-            extract_1_block!(block_ptr, vs[0]);
+            extract_1_block!(_block_ptr, vs[0]);
         }
     }
 }
