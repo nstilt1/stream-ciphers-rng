@@ -23,12 +23,3 @@ pub struct Legacy();
 impl Variant for Legacy {
     const NONCE_INDEX: usize = 14;
 }
-
-#[derive(Clone)]
-#[cfg(feature = "xchacha")]
-pub struct XChaChaVariant {}
-
-#[cfg(feature = "xchacha")]
-impl Variant for XChaChaVariant {
-    const NONCE_INDEX: usize = 13;
-}

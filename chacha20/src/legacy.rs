@@ -18,7 +18,10 @@ use crate::variants::Legacy;
 /// **WARNING:** this implementation uses 32-bit counter, while the original
 /// implementation uses 64-bit counter. In other words, it does
 /// not allow encrypting of more than 256 GiB of data.
-pub type ChaCha20Legacy = StreamCipherCoreWrapper<ChaChaCore<R20, Legacy>>;
+pub type ChaCha20Legacy = StreamCipherCoreWrapper<ChaCha20LegacyCore>;
+
+/// /// The ChaCha20 stream cipher (legacy "djb" construction with 64-bit nonce).
+pub type ChaCha20LegacyCore = ChaChaCore<R20, Legacy>;
 
 impl KeySizeUser for ChaChaCore<R20, Legacy> {
     type KeySize = U32;

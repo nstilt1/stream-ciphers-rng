@@ -1,12 +1,15 @@
 //! XChaCha is an extended nonce variant of ChaCha
 
 use cipher::{
-    consts::{U16, U24, U32},
+    consts::{U16, U24, U32, U64},
     generic_array::GenericArray,
-    IvSizeUser, KeyIvInit, KeySizeUser, StreamCipherCoreWrapper,
+    IvSizeUser, KeyIvInit, KeySizeUser, StreamCipherCoreWrapper, BlockSizeUser, StreamCipherCore, StreamClosure, StreamCipherSeekCore,
 };
 
-use crate::{variants::XChaChaVariant, ChaChaCore, Rounds, CONSTANTS, R12, R20, R8, STATE_WORDS};
+#[cfg(feature = "zeroize")]
+use zeroize::ZeroizeOnDrop;
+
+use crate::{variants::Ietf, ChaChaCore, Rounds, CONSTANTS, R12, R20, R8, STATE_WORDS};
 
 /// Key type used by all ChaCha variants.
 pub type Key = GenericArray<u8, U32>;
@@ -29,21 +32,28 @@ pub type XNonce = GenericArray<u8, U24>;
 /// and is documented in an (expired) IETF draft:
 ///
 /// <https://tools.ietf.org/html/draft-arciszewski-xchacha-03>
-pub type XChaCha20 = StreamCipherCoreWrapper<ChaChaCore<R20, XChaChaVariant>>;
+pub type XChaCha20 = StreamCipherCoreWrapper<XChaChaCore<R20>>;
 /// XChaCha12 stream cipher (reduced-round variant of [`XChaCha20`] with 12 rounds)
-pub type XChaCha12 = StreamCipherCoreWrapper<ChaChaCore<R12, XChaChaVariant>>;
+pub type XChaCha12 = StreamCipherCoreWrapper<XChaChaCore<R12>>;
 /// XChaCha8 stream cipher (reduced-round variant of [`XChaCha20`] with 8 rounds)
-pub type XChaCha8 = StreamCipherCoreWrapper<ChaChaCore<R8, XChaChaVariant>>;
+pub type XChaCha8 = StreamCipherCoreWrapper<XChaChaCore<R8>>;
 
-impl<R: Rounds> KeySizeUser for ChaChaCore<R, XChaChaVariant> {
+/// The XChaCha core function.
+pub struct XChaChaCore<R: Rounds>(ChaChaCore<R, Ietf>);
+
+impl<R: Rounds> KeySizeUser for XChaChaCore<R> {
     type KeySize = U32;
 }
 
-impl<R: Rounds> IvSizeUser for ChaChaCore<R, XChaChaVariant> {
+impl<R: Rounds> IvSizeUser for XChaChaCore<R> {
     type IvSize = U24;
 }
 
-impl<R: Rounds> KeyIvInit for ChaChaCore<R, XChaChaVariant> {
+impl<R: Rounds> BlockSizeUser for XChaChaCore<R> {
+    type BlockSize = U64;
+}
+
+impl<R: Rounds> KeyIvInit for XChaChaCore<R> {
     fn new(key: &Key, iv: &XNonce) -> Self {
         let subkey = hchacha::<R>(key, iv[..16].as_ref().into());
 
@@ -51,9 +61,39 @@ impl<R: Rounds> KeyIvInit for ChaChaCore<R, XChaChaVariant> {
         // first 4 bytes are 0, last 8 bytes are last 8 from the iv
         // according to draft-arciszewski-xchacha-03
         nonce[4..].copy_from_slice(&iv[16..]);
-        ChaChaCore::<R, XChaChaVariant>::new(subkey.as_ref(), &nonce)
+        Self(ChaChaCore::<R, Ietf>::new(subkey.as_ref(), &nonce))
     }
 }
+
+impl<R: Rounds> StreamCipherCore for XChaChaCore<R> {
+    #[inline(always)]
+    fn remaining_blocks(&self) -> Option<usize> {
+        self.0.remaining_blocks()
+    }
+
+    #[inline(always)]
+    fn process_with_backend(&mut self, f: impl StreamClosure<BlockSize = Self::BlockSize>) {
+        self.0.process_with_backend(f);
+    }
+}
+
+impl<R: Rounds> StreamCipherSeekCore for XChaChaCore<R> {
+    type Counter = u32;
+
+    #[inline(always)]
+    fn get_block_pos(&self) -> u32 {
+        self.0.get_block_pos()
+    }
+
+    #[inline(always)]
+    fn set_block_pos(&mut self, pos: u32) {
+        self.0.set_block_pos(pos);
+    }
+}
+
+#[cfg(feature = "zeroize")]
+#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
+impl<R: Rounds> ZeroizeOnDrop for XChaChaCore<R> {}
 
 /// The HChaCha function: adapts the ChaCha core function in the same
 /// manner that HSalsa adapts the Salsa function.
