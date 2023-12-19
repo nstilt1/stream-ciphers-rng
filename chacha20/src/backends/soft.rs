@@ -40,15 +40,15 @@ impl<'a, R: Rounds, V: Variant> Backend<'a, R, V> {
             block_ptr = block_ptr.add(1);
         }
     }
-    /// Generates 4 blocks and blindly writes them to `dest_ptr`
+    /// Generates `num_blocks * 64` bytes and blindly writes them to `dest_ptr`
     ///
     /// # Safety
-    /// `dest_ptr` must have at least 256 bytes available to be overwritten, or else it
-    /// could produce undefined behavior
+    /// `dest_ptr` must have at least `64 * num_blocks` bytes available to be
+    /// overwritten, or else it could produce undefined behavior
     #[inline(always)]
     #[cfg(feature = "rand_core")]
-    pub(crate) unsafe fn rng_gen_ks_blocks(&mut self, mut dest_ptr: *mut u8) {
-        for _i in 0..4 {
+    pub(crate) unsafe fn rng_gen_ks_blocks(&mut self, mut dest_ptr: *mut u8, num_blocks: usize) {
+        for _i in 0..num_blocks {
             self.write_ks_block(dest_ptr);
             dest_ptr = dest_ptr.add(64);
         }
