@@ -277,7 +277,6 @@ impl<R: Rounds, V: Variant> StreamCipherSeekCore for ChaChaCore<R, V> {
 
     #[inline(always)]
     fn set_block_pos(&mut self, pos: Self::Counter) {
-        // seems like we have to cast a spell to do anything with this type
         self.state[12] = pos
     }
 }
