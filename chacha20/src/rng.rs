@@ -122,29 +122,81 @@ impl From<u128> for StreamId {
     }
 }
 
-use cfg_if::cfg_if;
+/// A trait for restricting the types of BlockRngItems
+trait BlockRngItem {}
+impl BlockRngItem for u8 {}
+impl BlockRngItem for u16 {}
+impl BlockRngItem for u32 {}
+impl BlockRngItem for u64 {}
 
-cfg_if! {
-    if #[cfg(chacha20_force_soft)] {
-        const BUFFER_SIZE: usize = 16;
-    } else if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
-        cfg_if! {
-            if #[cfg(chacha20_force_avx2)] {
-                const BUFFER_SIZE: usize = 64;
-            } else if #[cfg(chacha20_force_sse2)] {
-                const BUFFER_SIZE: usize = 16;
-            } else if #[cfg(target_feature = "avx2")] {
-                const BUFFER_SIZE: usize = 64;
-            } else if #[cfg(target_feature = "sse2")] {
-                const BUFFER_SIZE: usize = 16;
-            } else {
-                const BUFFER_SIZE: usize = 16;
+#[derive(Clone)]
+struct BlockRngResults<Item: BlockRngItem> {
+    ptr: *mut Item,
+    len: usize
+}
+
+impl<Item: BlockRngItem> AsRef<[u32]> for BlockRngResults<Item> {
+    fn as_ref(&self) -> &[u32] {
+        unsafe {
+            core::slice::from_raw_parts(self.ptr, self.len)
+        }
+    }
+}
+
+impl<Item: BlockRngItem> AsMut<[u32]> for BlockRngResults<Item> {
+    fn as_mut(&mut self) -> &mut [u32] {
+        unsafe {
+            core::slice::from_raw_parts_mut(self.ptr, self.len)
+        }
+    }
+}
+
+impl<Item: BlockRngItem> BlockRngResults<Item> {
+    fn new(len: usize) -> Self {
+        unsafe {
+            let allocation = core::alloc::Allocator::allocate_zeroed(&self, layout);
+            if allocation.as_ref().is_err() {
+                panic!("Allocation error for BlockRngResults");
+            }
+            Self {
+                ptr: allocation.unwrap(),
+                len
             }
         }
-    } else if #[cfg(all(chacha20_force_neon, target_arch = "aarch64", target_feature = "neon"))] {
-        const BUFFER_SIZE: usize = 64;
-    } else {
-        const BUFFER_SIZE: usize = 16;
+    }
+}
+
+use cfg_if::cfg_if;
+
+impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
+    /// A helper function to pick the buffer size at runtime
+    fn determine_buffer_size(&self) -> usize {
+        cfg_if! {
+            if #[cfg(chacha20_force_soft)] {
+                16
+            } else if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
+                cfg_if! {
+                    if #[cfg(chacha20_force_avx2)] {
+                        64
+                    } else if #[cfg(chacha20_force_sse2)] {
+                        16
+                    } else {
+                        let (avx2_token, sse2_token) = self.tokens;
+                        if avx2_token.get() {
+                            64
+                        } else if sse2_token.get() {
+                            16
+                        } else {
+                            16
+                        }
+                    }
+                }
+            } else if #[cfg(all(chacha20_force_neon, target_arch = "aarch64", target_feature = "neon"))] {
+                64
+            } else {
+                16
+            }
+        }
     }
 }
 
@@ -164,12 +216,15 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
                         backends::avx2::rng_inner::<R, V>(self, dest_ptr, num_blocks);
                     } else if #[cfg(chacha20_force_sse2)] {
                         backends::sse2::rng_inner::<R, V>(self, dest_ptr, num_blocks);
-                    } else if #[cfg(target_feature = "avx2")] {
-                        backends::avx2::rng_inner::<R, V>(self, dest_ptr, num_blocks);
-                    } else if #[cfg(target_feature = "sse2")] {
-                        backends::sse2::rng_inner::<R, V>(self, dest_ptr, num_blocks);
                     } else {
-                        backends::soft::Backend(self).rng_gen_ks_blocks(dest_ptr, num_blocks);
+                        let (avx2_token, sse2_token) = self.tokens;
+                        if avx2_token.get() {
+                            backends::avx2::rng_inner::<R, V>(self, dest_ptr, num_blocks);
+                        } else if sse2_token.get() {
+                            backends::sse2::rng_inner::<R, V>(self, dest_ptr, num_blocks);
+                        } else {
+                            backends::soft::Backend(self).rng_gen_ks_blocks(dest_ptr, num_blocks);
+                        }
                     }
                 }
             } else if #[cfg(all(chacha20_force_neon, target_arch = "aarch64", target_feature = "neon"))] {
@@ -180,9 +235,6 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
         }
     }
 }
-
-// NB. this must remain consistent with some currently hard-coded numbers in this module
-const BUF_BLOCKS: u8 = BUFFER_SIZE as u8 >> 4;
 
 macro_rules! impl_chacha_rng {
     ($ChaChaXRng:ident, $ChaChaXCore:ident, $rounds:ident, $abst: ident) => {
@@ -260,7 +312,7 @@ macro_rules! impl_chacha_rng {
         #[derive(Clone)]
         pub struct $ChaChaXRng {
             core: $ChaChaXCore,
-            buffer: [u32; BUFFER_SIZE],
+            buffer: BlockRngResults,
             index: usize,
         }
 
