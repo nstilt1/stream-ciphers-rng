@@ -124,6 +124,12 @@ impl From<u128> for StreamId {
 
 use cfg_if::cfg_if;
 
+// note: this "works" in the sense that whichever target it is compiled for 
+// will have the proper BUFFER_SIZE; however, if it is compiled for 
+// avx2 and then packaged in some software that ends up on a lot of computers,
+// x86/x86_64 computers that don't have avx2 will have a buffer of [u32; 64]
+//
+// it will still function, but it is not optimal
 cfg_if! {
     if #[cfg(chacha20_force_soft)] {
         const BUFFER_SIZE: usize = 16;
@@ -164,12 +170,15 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
                         backends::avx2::rng_inner::<R, V>(self, dest_ptr, num_blocks);
                     } else if #[cfg(chacha20_force_sse2)] {
                         backends::sse2::rng_inner::<R, V>(self, dest_ptr, num_blocks);
-                    } else if #[cfg(target_feature = "avx2")] {
-                        backends::avx2::rng_inner::<R, V>(self, dest_ptr, num_blocks);
-                    } else if #[cfg(target_feature = "sse2")] {
-                        backends::sse2::rng_inner::<R, V>(self, dest_ptr, num_blocks);
                     } else {
-                        backends::soft::Backend(self).rng_gen_ks_blocks(dest_ptr, num_blocks);
+                        let (avx2_token, sse2_token) = self.tokens;
+                        if avx2_token.get() {
+                            backends::avx2::rng_inner::<R, V>(self, dest_ptr, num_blocks);
+                        } else if sse2_token.get() {
+                            backends::sse2::rng_inner::<R, V>(self, dest_ptr, num_blocks);
+                        } else {
+                            backends::soft::Backend(self).rng_gen_ks_blocks(dest_ptr, num_blocks);
+                        }
                     }
                 }
             } else if #[cfg(all(chacha20_force_neon, target_arch = "aarch64", target_feature = "neon"))] {
