@@ -684,7 +684,7 @@ mod tests {
 
     #[test]
     /// Testing the edge cases of `fill_bytes()` by brute-forcing it with dest sizes
-    /// that start at 1, and increase by 1 up to `N`, then they decrease from `N-1`
+    /// that start at 1, and increase by 1 up to `N`, then they decrease from `N`
     /// to 1, and this can repeat multiple times if desired.
     ///
     /// This test uses `rand_chacha v0.3.1` because this version's API is directly
@@ -696,31 +696,38 @@ mod tests {
     /// test results should be accurate up to `block_pos = 2^32 - 1`.
     fn test_fill_bytes_v2() {
         use rand_chacha::ChaCha20Rng as TesterRng;
-
+    
         let mut rng = ChaChaRng::from_seed([0u8; 32]);
         let mut tester_rng = TesterRng::from_seed([0u8; 32]);
-
+    
         let num_iterations = 32;
 
+        // If N is too large, it could cause stack overflow.
+        // With N = 1445, the arrays are 1044735 bytes each, or 0.9963 MiB
+        const N: usize = 1000;
+        // compute the sum from 1 to N, with increments of 1
+        const LEN: usize = (N * (N + 1)) / 2;
+
+        let mut test_array: [u8; LEN];
+        let mut tester_array: [u8; LEN];
+    
         for _iteration in 0..num_iterations {
-            // If N is too large, it could cause stack overflow.
-            // With N = 1445, the arrays are 1044735 bytes each, or 0.9963 MiB
-            const N: usize = 1000;
-            // compute the sum from 1 to N, with increments of 1
-            const LEN: usize = (N * (N + 1)) >> 1;
-
-            let mut test_array = [0u8; LEN];
-            let mut tester_array = [0u8; LEN];
-
+    
+            test_array = [0u8; LEN];
+            tester_array = [0u8; LEN];
+    
             let mut dest_pos = 0;
-            let mut start_word_pos;
-            // test fill_bytes with destinations starting at 1 byte, increasing by 1,
-            // up to N-1 bytes
-            for test_len in 1..N {
+            // test fill_bytes with lengths starting at 1 byte, increasing by 1,
+            // up to N bytes
+            for test_len in 1..=N {
+                let debug_start_word_pos = rng.get_word_pos();
                 let end_pos = dest_pos + test_len;
+                
+                // ensure that the current dest_pos index isn't overwritten already
+                assert_eq!(test_array[dest_pos], 0);
                 rng.fill_bytes(&mut test_array[dest_pos..end_pos]);
                 tester_rng.fill_bytes(&mut tester_array[dest_pos..end_pos]);
-
+    
                 if test_array[dest_pos..end_pos] != tester_array[dest_pos..end_pos] {
                     for (t, (index, expected)) in test_array[dest_pos..end_pos]
                         .iter()
@@ -728,29 +735,33 @@ mod tests {
                     {
                         if t != expected {
                             panic!(
-                                "Failed test at start_word_pos = {},\nfailed index: {:?}",
-                                rng.get_word_pos(),
-                                index
+                                "Failed test at start_word_pos = {},\nfailed index: {:?}\nFailing word_pos = {}",
+                                debug_start_word_pos,
+                                index,
+                                debug_start_word_pos + (index / 4) as u64
                             );
                         }
                     }
                 }
                 assert_eq!(rng.next_u32(), tester_rng.next_u32());
-
+    
                 dest_pos = end_pos;
             }
             test_array = [0u8; LEN];
             tester_array = [0u8; LEN];
             dest_pos = 0;
-
-            // test fill_bytes with destinations starting at N-1 bytes, decreasing by 1,
+    
+            // test fill_bytes with lengths starting at N-1 bytes, decreasing by 1,
             // down to 1 byte
-            for test_len in 1..N {
-                start_word_pos = rng.get_word_pos();
+            for test_len in 1..=N {
+                let debug_start_word_pos = rng.get_word_pos();
                 let end_pos = dest_pos + N - test_len;
+    
+                // ensure that the current dest_pos index isn't overwritten already
+                assert_eq!(test_array[dest_pos], 0);
                 rng.fill_bytes(&mut test_array[dest_pos..end_pos]);
                 tester_rng.fill_bytes(&mut tester_array[dest_pos..end_pos]);
-
+    
                 if test_array[dest_pos..end_pos] != tester_array[dest_pos..end_pos] {
                     for (t, (index, expected)) in test_array[dest_pos..end_pos]
                         .iter()
@@ -758,8 +769,10 @@ mod tests {
                     {
                         if t != expected {
                             panic!(
-                                "Failed test at start_word_pos = {},\nfailed index: {:?}",
-                                start_word_pos, index
+                                "Failed test at start_word_pos = {},\nfailed index: {:?}\nFailing word_pos = {}",
+                                debug_start_word_pos,
+                                index,
+                                debug_start_word_pos + (index / 4) as u64
                             );
                         }
                     }
