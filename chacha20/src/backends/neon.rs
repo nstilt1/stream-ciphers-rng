@@ -145,7 +145,7 @@ macro_rules! extract {
 }
 
 /// Evaluates to `a = a + b`, where the operands are u32x4s
-macro_rules! add_vec {
+macro_rules! add_assign_vec {
     ($a:expr, $b:expr) => {
         $a = vaddq_u32($a, $b)
     };
@@ -170,24 +170,9 @@ impl<R: Rounds> Backend<R> {
         // without producing incorrect values (eventually, in fill_bytes())
         let mut blocks = [
             [self.state[0], self.state[1], self.state[2], self.state[3]],
-            [
-                self.state[0],
-                self.state[1],
-                self.state[2],
-                add64!(self.state[3], self.ctrs[0]),
-            ],
-            [
-                self.state[0],
-                self.state[1],
-                self.state[2],
-                add64!(self.state[3], self.ctrs[1]),
-            ],
-            [
-                self.state[0],
-                self.state[1],
-                self.state[2],
-                add64!(self.state[3], self.ctrs[2]),
-            ],
+            [self.state[0], self.state[1], self.state[2], add64!(self.state[3], self.ctrs[0])],
+            [self.state[0], self.state[1], self.state[2], add64!(self.state[3], self.ctrs[1])],
+            [self.state[0], self.state[1], self.state[2], add64!(self.state[3], self.ctrs[2])],
         ];
 
         for _ in 0..R::COUNT {
@@ -196,17 +181,17 @@ impl<R: Rounds> Backend<R> {
 
         for block in 0..num_blocks {
             // add state to block
-            for col in 0..4 {
-                add_vec!(blocks[block][col], self.state[col]);
+            for state_row in 0..4 {
+                add_assign_vec!(blocks[block][state_row], self.state[state_row]);
             }
             if block > 0 {
                 blocks[block][3] = add64!(blocks[block][3], self.ctrs[block - 1]);
             }
             // write blocks to pointer
-            for col in 0..4 {
+            for state_row in 0..4 {
                 vst1q_u8(
-                    dest_ptr.offset(col << 4),
-                    vreinterpretq_u8_u32(blocks[block][col as usize]),
+                    dest_ptr.offset(state_row << 4),
+                    vreinterpretq_u8_u32(blocks[block][state_row as usize]),
                 );
             }
             dest_ptr = dest_ptr.add(64);
@@ -226,29 +211,29 @@ unsafe fn double_quarter_round(blocks: &mut [[uint32x4_t; 4]; 4]) {
 #[inline]
 unsafe fn add_xor_rot(blocks: &mut [[uint32x4_t; 4]; 4]) {
     /// Evaluates to `a = a ^ b`, where the operands are u32x4s
-    macro_rules! xor_vec {
-        ($result:expr, $xor_val:expr) => {
-            $result = veorq_u32($result, $xor_val)
+    macro_rules! xor_assign_vec {
+        ($a:expr, $b:expr) => {
+            $a = veorq_u32($a, $b)
         };
     }
     for block in blocks.iter_mut() {
         // this part of the code cannot be reduced much more without having
         // to deal with some problems regarding `rotate_left` requiring the second
         // argument to be a const, and const arrays cannot be indexed by non-consts
-        add_vec!(block[0], block[1]);
-        xor_vec!(block[3], block[0]);
+        add_assign_vec!(block[0], block[1]);
+        xor_assign_vec!(block[3], block[0]);
         rotate_left!(block[3], 16);
 
-        add_vec!(block[2], block[3]);
-        xor_vec!(block[1], block[2]);
+        add_assign_vec!(block[2], block[3]);
+        xor_assign_vec!(block[1], block[2]);
         rotate_left!(block[1], 12);
 
-        add_vec!(block[0], block[1]);
-        xor_vec!(block[3], block[0]);
+        add_assign_vec!(block[0], block[1]);
+        xor_assign_vec!(block[3], block[0]);
         rotate_left!(block[3], 8);
 
-        add_vec!(block[2], block[3]);
-        xor_vec!(block[1], block[2]);
+        add_assign_vec!(block[2], block[3]);
+        xor_assign_vec!(block[1], block[2]);
         rotate_left!(block[1], 7);
     }
 }
