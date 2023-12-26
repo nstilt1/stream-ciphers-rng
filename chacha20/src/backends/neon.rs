@@ -20,21 +20,128 @@ use cipher::{
 
 struct Backend<R: Rounds> {
     state: [uint32x4_t; 4],
+    blocks: [[uint32x4_t; 4]; 4],
+    ctrs: [uint32x4_t; 4],
     _pd: PhantomData<R>,
+}
+
+macro_rules! add64 {
+    ($a:expr, $b:expr) => {
+        vreinterpretq_u32_u64(vaddq_u64(
+            vreinterpretq_u64_u32($a),
+            vreinterpretq_u64_u32($b),
+        ))
+    };
+}
+
+macro_rules! rotate_left {
+    ($v:expr, 8) => {{
+        let maskb = [3u8, 0, 1, 2, 7, 4, 5, 6, 11, 8, 9, 10, 15, 12, 13, 14];
+        let mask = vld1q_u8(maskb.as_ptr());
+
+        $v = vreinterpretq_u32_u8(vqtbl1q_u8(vreinterpretq_u8_u32($v), mask))
+    }};
+    ($v:expr, 16) => {
+        $v = vreinterpretq_u32_u16(vrev32q_u16(vreinterpretq_u16_u32($v)))
+    };
+    ($v:expr, $r:literal) => {
+        $v = vorrq_u32(vshlq_n_u32($v, $r), vshrq_n_u32($v, 32 - $r))
+    };
+}
+
+macro_rules! extract {
+    ($v:expr, $s:literal) => {
+        $v = vextq_u32($v, $v, $s)
+    };
 }
 
 impl<R: Rounds> Backend<R> {
     #[inline]
     unsafe fn new(state: &mut [u32; STATE_WORDS]) -> Self {
+        let state = [
+            vld1q_u32(state.as_ptr().offset(0)),
+            vld1q_u32(state.as_ptr().offset(4)),
+            vld1q_u32(state.as_ptr().offset(8)),
+            vld1q_u32(state.as_ptr().offset(12)),
+        ];
+        let ctrs = [
+            vld1q_u32([1, 0, 0, 0].as_ptr()),
+            vld1q_u32([2, 0, 0, 0].as_ptr()),
+            vld1q_u32([3, 0, 0, 0].as_ptr()),
+            vld1q_u32([4, 0, 0, 0].as_ptr()),
+        ];
+        let blocks = [
+            [state[0], state[1], state[2], state[3]],
+            [state[0], state[1], state[2], add64!(state[3], ctrs[0])],
+            [state[0], state[1], state[2], add64!(state[3], ctrs[1])],
+            [state[0], state[1], state[2], add64!(state[3], ctrs[2])]
+        ];
         Backend::<R> {
-            state: [
-                vld1q_u32(state.as_ptr().offset(0)),
-                vld1q_u32(state.as_ptr().offset(4)),
-                vld1q_u32(state.as_ptr().offset(8)),
-                vld1q_u32(state.as_ptr().offset(12)),
-            ],
+            state,
+            blocks,
+            ctrs,
             _pd: PhantomData,
         }
+    }
+
+    #[inline]
+    unsafe fn add_xor_rot(&mut self) {
+        macro_rules! add_word {
+            ($result:expr, $add_amount:expr) => {
+                $result = vaddq_u32($result, $add_amount)
+            };
+        }
+        macro_rules! xor_word {
+            ($result:expr, $xor_val:expr) => {
+                $result = veorq_u32($result, $xor_val)
+            };
+        }
+        for block in self.blocks.iter_mut() {
+            // this part of the code cannot be reduced much more without having 
+            // to deal with some problems regarding `rotate_left` requiring the second 
+            // argument to be a const, and const arrays cannot be indexed by non-consts
+            add_word!(block[0], block[1]);
+            xor_word!(block[3], block[0]);
+            rotate_left!(block[3], 16);
+
+            add_word!(block[2], block[3]);
+            xor_word!(block[1], block[2]);
+            rotate_left!(block[1], 12);
+
+            add_word!(block[0], block[1]);
+            xor_word!(block[3], block[0]);
+            rotate_left!(block[3], 8);
+
+            add_word!(block[2], block[3]);
+            xor_word!(block[1], block[2]);
+            rotate_left!(block[1], 7);
+        }
+    }
+
+    #[inline] 
+    unsafe fn rows_to_cols(&mut self) {
+        for block in self.blocks.iter_mut() {
+            extract!(block[1], 1);
+            extract!(block[2], 2);
+            extract!(block[3], 3);
+        }
+    }
+
+    #[inline] 
+    unsafe fn cols_to_rows(&mut self) {
+        for block in self.blocks.iter_mut() {
+            extract!(block[1], 3);
+            extract!(block[2], 2);
+            extract!(block[3], 1);
+        }
+    }
+
+    #[inline]
+    unsafe fn double_quarter_round(&mut self) {
+        self.add_xor_rot();
+        self.rows_to_cols();
+        self.add_xor_rot();
+        self.cols_to_rows();
     }
 }
 
@@ -90,25 +197,13 @@ impl<R: Rounds> ParBlocksSizeUser for Backend<R> {
     type ParBlocksSize = U4;
 }
 
-macro_rules! add64 {
-    ($a:expr, $b:expr) => {
-        vreinterpretq_u32_u64(vaddq_u64(
-            vreinterpretq_u64_u32($a),
-            vreinterpretq_u64_u32($b),
-        ))
-    };
-}
-
 #[cfg(feature = "cipher")]
 impl<R: Rounds> StreamBackend for Backend<R> {
     #[inline(always)]
     fn gen_ks_block(&mut self, block: &mut Block) {
-        let state3 = self.state[3];
-        let mut par = ParBlocks::<Self>::default();
-        self.gen_par_ks_blocks(&mut par);
-        *block = par[0];
+        // SAFETY: Block is a 64-byte array
         unsafe {
-            self.state[3] = add64!(state3, vld1q_u32([1, 0, 0, 0].as_ptr()));
+            self.write_par_ks_blocks(block.as_mut_ptr(), 1)
         }
     }
 
@@ -116,7 +211,7 @@ impl<R: Rounds> StreamBackend for Backend<R> {
     fn gen_par_ks_blocks(&mut self, blocks: &mut ParBlocks<Self>) {
         // SAFETY: `ParBlocks` is a 256-byte 2D array.
         unsafe {
-            self.write_par_ks_blocks(blocks.as_mut_ptr() as *mut u8, 4);
+            self.write_par_ks_blocks(blocks.as_mut_ptr() as *mut u8, 4)
         }
     }
 }
@@ -132,272 +227,45 @@ impl<R: Rounds> Backend<R> {
     /// overwritten, or else it could produce undefined behavior
     unsafe fn write_par_ks_blocks(&mut self, mut dest_ptr: *mut u8, num_blocks: usize) {
         assert!(
-            num_blocks <= 4,
-            "neon::write_par_ks_blocks() error: num_blocks must be <= 4"
+            num_blocks <= 4 && num_blocks > 0,
+            "neon::write_par_ks_blocks() error: num_blocks must be: 1 <= num_blocks <= 4"
         );
-        macro_rules! rotate_left {
-            ($v:ident, 8) => {{
-                let maskb = [3u8, 0, 1, 2, 7, 4, 5, 6, 11, 8, 9, 10, 15, 12, 13, 14];
-                let mask = vld1q_u8(maskb.as_ptr());
-
-                vreinterpretq_u32_u8(vqtbl1q_u8(vreinterpretq_u8_u32($v), mask))
-            }};
-            ($v:ident, 16) => {
-                vreinterpretq_u32_u16(vrev32q_u16(vreinterpretq_u16_u32($v)))
-            };
-            ($v:ident, $r:literal) => {
-                vorrq_u32(vshlq_n_u32($v, $r), vshrq_n_u32($v, 32 - $r))
-            };
-        }
-
-        macro_rules! extract {
-            ($v:ident, $s:literal) => {
-                vextq_u32($v, $v, $s)
-            };
-        }
-        let ctrs = [
-            vld1q_u32([1, 0, 0, 0].as_ptr()),
-            vld1q_u32([2, 0, 0, 0].as_ptr()),
-            vld1q_u32([3, 0, 0, 0].as_ptr()),
-            vld1q_u32([4, 0, 0, 0].as_ptr()),
-        ];
-
-        let mut r0_0 = self.state[0];
-        let mut r0_1 = self.state[1];
-        let mut r0_2 = self.state[2];
-        let mut r0_3 = self.state[3];
-
-        let mut r1_0 = self.state[0];
-        let mut r1_1 = self.state[1];
-        let mut r1_2 = self.state[2];
-        let mut r1_3 = add64!(r0_3, ctrs[0]);
-
-        let mut r2_0 = self.state[0];
-        let mut r2_1 = self.state[1];
-        let mut r2_2 = self.state[2];
-        let mut r2_3 = add64!(r0_3, ctrs[1]);
-
-        let mut r3_0 = self.state[0];
-        let mut r3_1 = self.state[1];
-        let mut r3_2 = self.state[2];
-        let mut r3_3 = add64!(r0_3, ctrs[2]);
 
         for _ in 0..R::COUNT {
-            r0_0 = vaddq_u32(r0_0, r0_1);
-            r1_0 = vaddq_u32(r1_0, r1_1);
-            r2_0 = vaddq_u32(r2_0, r2_1);
-            r3_0 = vaddq_u32(r3_0, r3_1);
-
-            r0_3 = veorq_u32(r0_3, r0_0);
-            r1_3 = veorq_u32(r1_3, r1_0);
-            r2_3 = veorq_u32(r2_3, r2_0);
-            r3_3 = veorq_u32(r3_3, r3_0);
-
-            r0_3 = rotate_left!(r0_3, 16);
-            r1_3 = rotate_left!(r1_3, 16);
-            r2_3 = rotate_left!(r2_3, 16);
-            r3_3 = rotate_left!(r3_3, 16);
-
-            r0_2 = vaddq_u32(r0_2, r0_3);
-            r1_2 = vaddq_u32(r1_2, r1_3);
-            r2_2 = vaddq_u32(r2_2, r2_3);
-            r3_2 = vaddq_u32(r3_2, r3_3);
-
-            r0_1 = veorq_u32(r0_1, r0_2);
-            r1_1 = veorq_u32(r1_1, r1_2);
-            r2_1 = veorq_u32(r2_1, r2_2);
-            r3_1 = veorq_u32(r3_1, r3_2);
-
-            r0_1 = rotate_left!(r0_1, 12);
-            r1_1 = rotate_left!(r1_1, 12);
-            r2_1 = rotate_left!(r2_1, 12);
-            r3_1 = rotate_left!(r3_1, 12);
-
-            r0_0 = vaddq_u32(r0_0, r0_1);
-            r1_0 = vaddq_u32(r1_0, r1_1);
-            r2_0 = vaddq_u32(r2_0, r2_1);
-            r3_0 = vaddq_u32(r3_0, r3_1);
-
-            r0_3 = veorq_u32(r0_3, r0_0);
-            r1_3 = veorq_u32(r1_3, r1_0);
-            r2_3 = veorq_u32(r2_3, r2_0);
-            r3_3 = veorq_u32(r3_3, r3_0);
-
-            r0_3 = rotate_left!(r0_3, 8);
-            r1_3 = rotate_left!(r1_3, 8);
-            r2_3 = rotate_left!(r2_3, 8);
-            r3_3 = rotate_left!(r3_3, 8);
-
-            r0_2 = vaddq_u32(r0_2, r0_3);
-            r1_2 = vaddq_u32(r1_2, r1_3);
-            r2_2 = vaddq_u32(r2_2, r2_3);
-            r3_2 = vaddq_u32(r3_2, r3_3);
-
-            r0_1 = veorq_u32(r0_1, r0_2);
-            r1_1 = veorq_u32(r1_1, r1_2);
-            r2_1 = veorq_u32(r2_1, r2_2);
-            r3_1 = veorq_u32(r3_1, r3_2);
-
-            r0_1 = rotate_left!(r0_1, 7);
-            r1_1 = rotate_left!(r1_1, 7);
-            r2_1 = rotate_left!(r2_1, 7);
-            r3_1 = rotate_left!(r3_1, 7);
-
-            r0_1 = extract!(r0_1, 1);
-            r0_2 = extract!(r0_2, 2);
-            r0_3 = extract!(r0_3, 3);
-
-            r1_1 = extract!(r1_1, 1);
-            r1_2 = extract!(r1_2, 2);
-            r1_3 = extract!(r1_3, 3);
-
-            r2_1 = extract!(r2_1, 1);
-            r2_2 = extract!(r2_2, 2);
-            r2_3 = extract!(r2_3, 3);
-
-            r3_1 = extract!(r3_1, 1);
-            r3_2 = extract!(r3_2, 2);
-            r3_3 = extract!(r3_3, 3);
-
-            r0_0 = vaddq_u32(r0_0, r0_1);
-            r1_0 = vaddq_u32(r1_0, r1_1);
-            r2_0 = vaddq_u32(r2_0, r2_1);
-            r3_0 = vaddq_u32(r3_0, r3_1);
-
-            r0_3 = veorq_u32(r0_3, r0_0);
-            r1_3 = veorq_u32(r1_3, r1_0);
-            r2_3 = veorq_u32(r2_3, r2_0);
-            r3_3 = veorq_u32(r3_3, r3_0);
-
-            r0_3 = rotate_left!(r0_3, 16);
-            r1_3 = rotate_left!(r1_3, 16);
-            r2_3 = rotate_left!(r2_3, 16);
-            r3_3 = rotate_left!(r3_3, 16);
-
-            r0_2 = vaddq_u32(r0_2, r0_3);
-            r1_2 = vaddq_u32(r1_2, r1_3);
-            r2_2 = vaddq_u32(r2_2, r2_3);
-            r3_2 = vaddq_u32(r3_2, r3_3);
-
-            r0_1 = veorq_u32(r0_1, r0_2);
-            r1_1 = veorq_u32(r1_1, r1_2);
-            r2_1 = veorq_u32(r2_1, r2_2);
-            r3_1 = veorq_u32(r3_1, r3_2);
-
-            r0_1 = rotate_left!(r0_1, 12);
-            r1_1 = rotate_left!(r1_1, 12);
-            r2_1 = rotate_left!(r2_1, 12);
-            r3_1 = rotate_left!(r3_1, 12);
-
-            r0_0 = vaddq_u32(r0_0, r0_1);
-            r1_0 = vaddq_u32(r1_0, r1_1);
-            r2_0 = vaddq_u32(r2_0, r2_1);
-            r3_0 = vaddq_u32(r3_0, r3_1);
-
-            r0_3 = veorq_u32(r0_3, r0_0);
-            r1_3 = veorq_u32(r1_3, r1_0);
-            r2_3 = veorq_u32(r2_3, r2_0);
-            r3_3 = veorq_u32(r3_3, r3_0);
-
-            r0_3 = rotate_left!(r0_3, 8);
-            r1_3 = rotate_left!(r1_3, 8);
-            r2_3 = rotate_left!(r2_3, 8);
-            r3_3 = rotate_left!(r3_3, 8);
-
-            r0_2 = vaddq_u32(r0_2, r0_3);
-            r1_2 = vaddq_u32(r1_2, r1_3);
-            r2_2 = vaddq_u32(r2_2, r2_3);
-            r3_2 = vaddq_u32(r3_2, r3_3);
-
-            r0_1 = veorq_u32(r0_1, r0_2);
-            r1_1 = veorq_u32(r1_1, r1_2);
-            r2_1 = veorq_u32(r2_1, r2_2);
-            r3_1 = veorq_u32(r3_1, r3_2);
-
-            r0_1 = rotate_left!(r0_1, 7);
-            r1_1 = rotate_left!(r1_1, 7);
-            r2_1 = rotate_left!(r2_1, 7);
-            r3_1 = rotate_left!(r3_1, 7);
-
-            r0_1 = extract!(r0_1, 3);
-            r0_2 = extract!(r0_2, 2);
-            r0_3 = extract!(r0_3, 1);
-
-            r1_1 = extract!(r1_1, 3);
-            r1_2 = extract!(r1_2, 2);
-            r1_3 = extract!(r1_3, 1);
-
-            r2_1 = extract!(r2_1, 3);
-            r2_2 = extract!(r2_2, 2);
-            r2_3 = extract!(r2_3, 1);
-
-            r3_1 = extract!(r3_1, 3);
-            r3_2 = extract!(r3_2, 2);
-            r3_3 = extract!(r3_3, 1);
+            self.double_quarter_round();
         }
 
-        r0_0 = vaddq_u32(r0_0, self.state[0]);
-        r0_1 = vaddq_u32(r0_1, self.state[1]);
-        r0_2 = vaddq_u32(r0_2, self.state[2]);
-        r0_3 = vaddq_u32(r0_3, self.state[3]);
+        self.blocks[0][0] = vaddq_u32(self.blocks[0][0], self.state[0]);
+        self.blocks[0][1] = vaddq_u32(self.blocks[0][1], self.state[1]);
+        self.blocks[0][2] = vaddq_u32(self.blocks[0][2], self.state[2]);
+        self.blocks[0][3] = vaddq_u32(self.blocks[0][3], self.state[3]);
 
-        r1_0 = vaddq_u32(r1_0, self.state[0]);
-        r1_1 = vaddq_u32(r1_1, self.state[1]);
-        r1_2 = vaddq_u32(r1_2, self.state[2]);
-        r1_3 = vaddq_u32(r1_3, self.state[3]);
-        r1_3 = add64!(r1_3, ctrs[0]);
+        self.blocks[1][0] = vaddq_u32(self.blocks[1][0], self.state[0]);
+        self.blocks[1][1] = vaddq_u32(self.blocks[1][1], self.state[1]);
+        self.blocks[1][2] = vaddq_u32(self.blocks[1][2], self.state[2]);
+        self.blocks[1][3] = vaddq_u32(self.blocks[1][3], self.state[3]);
+        self.blocks[1][3] = add64!(self.blocks[1][3], self.ctrs[0]);
 
-        r2_0 = vaddq_u32(r2_0, self.state[0]);
-        r2_1 = vaddq_u32(r2_1, self.state[1]);
-        r2_2 = vaddq_u32(r2_2, self.state[2]);
-        r2_3 = vaddq_u32(r2_3, self.state[3]);
-        r2_3 = add64!(r2_3, ctrs[1]);
+        self.blocks[2][0] = vaddq_u32(self.blocks[2][0], self.state[0]);
+        self.blocks[2][1] = vaddq_u32(self.blocks[2][1], self.state[1]);
+        self.blocks[2][2] = vaddq_u32(self.blocks[2][2], self.state[2]);
+        self.blocks[2][3] = vaddq_u32(self.blocks[2][3], self.state[3]);
+        self.blocks[2][3] = add64!(self.blocks[2][3], self.ctrs[1]);
 
-        r3_0 = vaddq_u32(r3_0, self.state[0]);
-        r3_1 = vaddq_u32(r3_1, self.state[1]);
-        r3_2 = vaddq_u32(r3_2, self.state[2]);
-        r3_3 = vaddq_u32(r3_3, self.state[3]);
-        r3_3 = add64!(r3_3, ctrs[2]);
+        self.blocks[3][0] = vaddq_u32(self.blocks[3][0], self.state[0]);
+        self.blocks[3][1] = vaddq_u32(self.blocks[3][1], self.state[1]);
+        self.blocks[3][2] = vaddq_u32(self.blocks[3][2], self.state[2]);
+        self.blocks[3][3] = vaddq_u32(self.blocks[3][3], self.state[3]);
+        self.blocks[3][3] = add64!(self.blocks[3][3], self.ctrs[2]);
 
-        if num_blocks >= 1 {
-            vst1q_u8(dest_ptr.offset(0), vreinterpretq_u8_u32(r0_0));
-            vst1q_u8(dest_ptr.offset(16), vreinterpretq_u8_u32(r0_1));
-            vst1q_u8(dest_ptr.offset(2 * 16), vreinterpretq_u8_u32(r0_2));
-            vst1q_u8(dest_ptr.offset(3 * 16), vreinterpretq_u8_u32(r0_3));
+        for block in 0..num_blocks {
 
+            // write blocks to pointer
+            for col in 0..4 {
+                vst1q_u8(dest_ptr.offset(col << 4), vreinterpretq_u8_u32(self.blocks[block][col as usize]));
+            }
             dest_ptr = dest_ptr.add(64);
         }
-        if num_blocks >= 2 {
-            vst1q_u8(dest_ptr.offset(0), vreinterpretq_u8_u32(r1_0));
-            vst1q_u8(dest_ptr.offset(16), vreinterpretq_u8_u32(r1_1));
-            vst1q_u8(dest_ptr.offset(2 * 16), vreinterpretq_u8_u32(r1_2));
-            vst1q_u8(dest_ptr.offset(3 * 16), vreinterpretq_u8_u32(r1_3));
-
-            dest_ptr = dest_ptr.add(64);
-        } else {
-            self.state[3] = add64!(self.state[3], ctrs[0]);
-            return;
-        }
-        if num_blocks >= 3 {
-            vst1q_u8(dest_ptr.offset(0), vreinterpretq_u8_u32(r2_0));
-            vst1q_u8(dest_ptr.offset(16), vreinterpretq_u8_u32(r2_1));
-            vst1q_u8(dest_ptr.offset(2 * 16), vreinterpretq_u8_u32(r2_2));
-            vst1q_u8(dest_ptr.offset(3 * 16), vreinterpretq_u8_u32(r2_3));
-
-            dest_ptr = dest_ptr.add(64);
-        } else {
-            self.state[3] = add64!(self.state[3], ctrs[1]);
-            return;
-        }
-        if num_blocks == 4 {
-            vst1q_u8(dest_ptr.offset(0), vreinterpretq_u8_u32(r3_0));
-            vst1q_u8(dest_ptr.offset(16), vreinterpretq_u8_u32(r3_1));
-            vst1q_u8(dest_ptr.offset(2 * 16), vreinterpretq_u8_u32(r3_2));
-            vst1q_u8(dest_ptr.offset(3 * 16), vreinterpretq_u8_u32(r3_3));
-
-            self.state[3] = add64!(self.state[3], ctrs[3]);
-        } else {
-            self.state[3] = add64!(self.state[3], ctrs[2]);
-        }
+        self.state[3] = add64!(self.state[3], self.ctrs[num_blocks - 1]);
     }
 }

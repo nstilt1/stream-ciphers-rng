@@ -735,10 +735,12 @@ mod tests {
                     {
                         if t != expected {
                             panic!(
-                                "Failed test at start_word_pos = {},\nfailed index: {:?}\nFailing word_pos = {}",
+                                "Failed test at start_word_pos = {},\nfailed index: {:?}\nFailing word_pos = {}\nComparing: {} == {}",
                                 debug_start_word_pos,
                                 index,
-                                debug_start_word_pos + (index / 4) as u64
+                                debug_start_word_pos + (index / 4) as u64,
+                                t,
+                                expected
                             );
                         }
                     }
@@ -769,10 +771,12 @@ mod tests {
                     {
                         if t != expected {
                             panic!(
-                                "Failed test at start_word_pos = {},\nfailed index: {:?}\nFailing word_pos = {}",
+                                "Failed test at start_word_pos = {},\nfailed index: {:?}\nFailing word_pos = {}\nComparing: {} == {}",
                                 debug_start_word_pos,
                                 index,
-                                debug_start_word_pos + (index / 4) as u64
+                                debug_start_word_pos + (index / 4) as u64,
+                                t,
+                                expected
                             );
                         }
                     }
@@ -781,6 +785,15 @@ mod tests {
                 dest_pos = end_pos;
             }
         }
+    }
+
+    #[test]
+    fn debugging_temp() {
+        let mut rng = ChaCha20Rng::from_seed([0u8; 32]);
+        let mut test_fill = [0u8; 32];
+        rng.set_word_pos(33645);
+        rng.fill_bytes(&mut test_fill);
+        assert_eq!(test_fill, [5u8; 32]);
     }
 
     #[cfg(feature = "serde1")]
