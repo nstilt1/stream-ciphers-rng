@@ -124,8 +124,8 @@ impl From<u128> for StreamId {
 
 use cfg_if::cfg_if;
 
-// note: this "works" in the sense that whichever target it is compiled for 
-// will have the proper BUFFER_SIZE; however, if it is compiled for 
+// note: this "works" in the sense that whichever target it is compiled for
+// will have the proper BUFFER_SIZE; however, if it is compiled for
 // avx2 and then packaged in some software that ends up on a lot of computers,
 // x86/x86_64 computers that don't have avx2 will have a buffer of [u32; 64]
 //
@@ -696,10 +696,10 @@ mod tests {
     /// test results should be accurate up to `block_pos = 2^32 - 1`.
     fn test_fill_bytes_v2() {
         use rand_chacha::ChaCha20Rng as TesterRng;
-    
+
         let mut rng = ChaChaRng::from_seed([0u8; 32]);
         let mut tester_rng = TesterRng::from_seed([0u8; 32]);
-    
+
         let num_iterations = 32;
 
         // If N is too large, it could cause stack overflow.
@@ -710,24 +710,23 @@ mod tests {
 
         let mut test_array: [u8; LEN];
         let mut tester_array: [u8; LEN];
-    
+
         for _iteration in 0..num_iterations {
-    
             test_array = [0u8; LEN];
             tester_array = [0u8; LEN];
-    
+
             let mut dest_pos = 0;
             // test fill_bytes with lengths starting at 1 byte, increasing by 1,
             // up to N bytes
             for test_len in 1..=N {
                 let debug_start_word_pos = rng.get_word_pos();
                 let end_pos = dest_pos + test_len;
-                
+
                 // ensure that the current dest_pos index isn't overwritten already
                 assert_eq!(test_array[dest_pos], 0);
                 rng.fill_bytes(&mut test_array[dest_pos..end_pos]);
                 tester_rng.fill_bytes(&mut tester_array[dest_pos..end_pos]);
-    
+
                 if test_array[dest_pos..end_pos] != tester_array[dest_pos..end_pos] {
                     for (t, (index, expected)) in test_array[dest_pos..end_pos]
                         .iter()
@@ -746,24 +745,24 @@ mod tests {
                     }
                 }
                 assert_eq!(rng.next_u32(), tester_rng.next_u32());
-    
+
                 dest_pos = end_pos;
             }
             test_array = [0u8; LEN];
             tester_array = [0u8; LEN];
             dest_pos = 0;
-    
+
             // test fill_bytes with lengths starting at N-1 bytes, decreasing by 1,
             // down to 1 byte
             for test_len in 1..=N {
                 let debug_start_word_pos = rng.get_word_pos();
                 let end_pos = dest_pos + N - test_len;
-    
+
                 // ensure that the current dest_pos index isn't overwritten already
                 assert_eq!(test_array[dest_pos], 0);
                 rng.fill_bytes(&mut test_array[dest_pos..end_pos]);
                 tester_rng.fill_bytes(&mut tester_array[dest_pos..end_pos]);
-    
+
                 if test_array[dest_pos..end_pos] != tester_array[dest_pos..end_pos] {
                     for (t, (index, expected)) in test_array[dest_pos..end_pos]
                         .iter()
