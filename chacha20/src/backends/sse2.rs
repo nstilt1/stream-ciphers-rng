@@ -4,9 +4,6 @@ use core::marker::PhantomData;
 #[cfg(feature = "cipher")]
 use crate::chacha::Block;
 
-#[cfg(feature = "rand_core")]
-use crate::{ChaChaCore, variants::Variant};
-
 #[cfg(target_arch = "x86")]
 use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
@@ -71,19 +68,18 @@ where
 /// # Safety
 /// `dest_ptr` must have at least `num_blocks * 4` bytes available to be 
 /// overwritten, or else it could produce undefined behavior
-pub(crate) unsafe fn rng_inner<R, V>(core: &mut ChaChaCore<R, V>, mut dest_ptr: *mut u8, num_blocks: usize)
+pub(crate) unsafe fn rng_inner<R>(state: &mut [u32; STATE_WORDS], mut dest_ptr: *mut u8, num_blocks: usize)
 where
     R: Rounds,
-    V: Variant
 {
-    let mut backend = Backend::<R>::new(&mut core.state);
+    let mut backend = Backend::<R>::new(state);
 
     for _i in 0..num_blocks {
         backend.write_ks_block(dest_ptr);
         dest_ptr = dest_ptr.add(64);
     }
 
-    core.state[12] = _mm_cvtsi128_si32(backend.v[3]) as u32;
+    state[12] = _mm_cvtsi128_si32(backend.v[3]) as u32;
 }
 
 impl<R: Rounds> Backend<R> {

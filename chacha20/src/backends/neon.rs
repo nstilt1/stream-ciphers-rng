@@ -6,9 +6,6 @@
 use crate::{Rounds, STATE_WORDS};
 use core::{arch::aarch64::*, marker::PhantomData};
 
-#[cfg(feature = "rand_core")]
-use crate::{variants::Variant, ChaChaCore};
-
 #[cfg(feature = "cipher")]
 use crate::chacha::Block;
 
@@ -67,14 +64,14 @@ where
 #[target_feature(enable = "neon")]
 /// Sets up backend and blindly writes 4 blocks to dest_ptr.
 pub(crate) unsafe fn rng_inner<R, V>(
-    core: &mut ChaChaCore<R, V>,
+    state: &mut [u32; STATE_WORDS],
     mut dest_ptr: *mut u8,
     num_blocks: usize,
 ) where
     R: Rounds,
     V: Variant,
 {
-    let mut backend = Backend::<R>::new(&mut core.state);
+    let mut backend = Backend::<R>::new(state);
 
     let num_chunks = num_blocks >> 2;
     let remaining = num_blocks & 0x03;
@@ -87,7 +84,7 @@ pub(crate) unsafe fn rng_inner<R, V>(
         backend.write_par_ks_blocks(dest_ptr, remaining);
     }
 
-    vst1q_u32(core.state.as_mut_ptr().offset(12), backend.state[3]);
+    vst1q_u32(state.as_mut_ptr().offset(12), backend.state[3]);
 }
 
 #[cfg(feature = "cipher")]

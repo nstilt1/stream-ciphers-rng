@@ -167,22 +167,22 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
             } else if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
                 cfg_if! {
                     if #[cfg(chacha20_force_avx2)] {
-                        backends::avx2::rng_inner::<R, V>(self, dest_ptr, num_blocks);
+                        backends::avx2::rng_inner::<R>(&mut self.state, dest_ptr, num_blocks);
                     } else if #[cfg(chacha20_force_sse2)] {
-                        backends::sse2::rng_inner::<R, V>(self, dest_ptr, num_blocks);
+                        backends::sse2::rng_inner::<R>(&mut self.state, dest_ptr, num_blocks);
                     } else {
                         let (avx2_token, sse2_token) = self.tokens;
                         if avx2_token.get() {
-                            backends::avx2::rng_inner::<R, V>(self, dest_ptr, num_blocks);
+                            backends::avx2::rng_inner::<R>(&mut self.state, dest_ptr, num_blocks);
                         } else if sse2_token.get() {
-                            backends::sse2::rng_inner::<R, V>(self, dest_ptr, num_blocks);
+                            backends::sse2::rng_inner::<R>(&mut self.state, dest_ptr, num_blocks);
                         } else {
                             backends::soft::Backend(self).rng_gen_ks_blocks(dest_ptr, num_blocks);
                         }
                     }
                 }
             } else if #[cfg(all(chacha20_force_neon, target_arch = "aarch64", target_feature = "neon"))] {
-                backends::neon::rng_inner::<R, V>(self, dest_ptr, num_blocks);
+                backends::neon::rng_inner::<R>(&mut self.state, dest_ptr, num_blocks);
             } else {
                 backends::soft::Backend(self).rng_gen_ks_blocks(dest_ptr, num_blocks);
             }
@@ -239,20 +239,27 @@ macro_rules! impl_chacha_rng {
         /// let mut rng = ChaCha20Rng::from_seed(seed);
         /// rng.set_stream(100);
         ///
-        /// // you can also use a [u8; 12] in `.set_stream()`, which has a *minor*
+        /// // you can use a [u8; 12] in `.set_stream()`, which has a *minor*
         /// // performance benefit over a u128
         /// rng.set_stream([3u8; 12]);
         ///
         ///
         /// rng.set_word_pos(5);
         ///
-        /// // you can also use a [u8; 5] in `.set_word_pos()`, which has a *minor*
+        /// // you can use a [u8; 5] in `.set_word_pos()`, which has a *minor*
         /// // performance benefit over a u64
         /// rng.set_word_pos([2u8; 5]);
         ///
         /// let x = rng.next_u32();
         /// let mut array = [0u8; 32];
         /// rng.fill_bytes(&mut array);
+        /// 
+        /// // if you need to clear the RNG's buffer, don't forget to call zeroize
+        /// # #[cfg(feature = "zeroize")]
+        /// use zeroize::Zeroize;
+        /// # #[cfg(feature = "zeroize")]
+        /// rng.zeroize();
+        /// 
         /// ```
         ///
         /// The other Rngs from this crate are initialized similarly.
@@ -784,15 +791,6 @@ mod tests {
                 dest_pos = end_pos;
             }
         }
-    }
-
-    #[test]
-    fn debugging_temp() {
-        let mut rng = ChaCha20Rng::from_seed([0u8; 32]);
-        let mut test_fill = [0u8; 32];
-        rng.set_word_pos(33645);
-        rng.fill_bytes(&mut test_fill);
-        assert_eq!(test_fill, [5u8; 32]);
     }
 
     #[cfg(feature = "serde1")]
