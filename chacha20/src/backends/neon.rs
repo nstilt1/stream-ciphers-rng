@@ -3,7 +3,7 @@
 //! Adapted from the Crypto++ `chacha_simd` implementation by Jack Lloyd and
 //! Jeffrey Walton (public domain).
 
-use crate::{Rounds, STATE_WORDS};
+use crate::{Rounds, STATE_WORDS, variant::Variant};
 use core::{arch::aarch64::*, marker::PhantomData};
 
 #[cfg(feature = "cipher")]
@@ -15,13 +15,15 @@ use cipher::{
     BlockSizeUser, ParBlocks, ParBlocksSizeUser, StreamBackend, StreamClosure,
 };
 
-struct Backend<R: Rounds> {
+#[derive(Clone)]
+struct Backend<R: Rounds, V: Variant> {
     state: [uint32x4_t; 4],
     ctrs: [uint32x4_t; 4],
     _pd: PhantomData<R>,
+    _variant: PhantomData<V>
 }
 
-impl<R: Rounds> Backend<R> {
+impl<R: Rounds, V: Variant> Backend<R, V> {
     #[inline]
     unsafe fn new(state: &mut [u32; STATE_WORDS]) -> Self {
         let state = [
@@ -36,10 +38,11 @@ impl<R: Rounds> Backend<R> {
             vld1q_u32([3, 0, 0, 0].as_ptr()),
             vld1q_u32([4, 0, 0, 0].as_ptr()),
         ];
-        Backend::<R> {
+        Backend::<R, V> {
             state,
             ctrs,
             _pd: PhantomData,
+            _variant: PhantomData
         }
     }
 }
@@ -47,12 +50,13 @@ impl<R: Rounds> Backend<R> {
 #[inline]
 #[cfg(feature = "cipher")]
 #[target_feature(enable = "neon")]
-pub(crate) unsafe fn inner<R, F>(state: &mut [u32; STATE_WORDS], f: F)
+pub(crate) unsafe fn inner<R, F, V>(state: &mut [u32; STATE_WORDS], f: F)
 where
     R: Rounds,
     F: StreamClosure<BlockSize = U64>,
+    V: Variant
 {
-    let mut backend = Backend::<R>::new(state);
+    let mut backend = Backend::<R, V>::new(state);
 
     f.call(&mut backend);
 
@@ -71,7 +75,7 @@ pub(crate) unsafe fn rng_inner<R, V>(
     R: Rounds,
     V: Variant,
 {
-    let mut backend = Backend::<R>::new(state);
+    let mut backend = Backend::<R, V>::new(state);
 
     let num_chunks = num_blocks >> 2;
     let remaining = num_blocks & 0x03;
@@ -88,16 +92,16 @@ pub(crate) unsafe fn rng_inner<R, V>(
 }
 
 #[cfg(feature = "cipher")]
-impl<R: Rounds> BlockSizeUser for Backend<R> {
+impl<R: Rounds, V: Variant> BlockSizeUser for Backend<R, V> {
     type BlockSize = U64;
 }
 #[cfg(feature = "cipher")]
-impl<R: Rounds> ParBlocksSizeUser for Backend<R> {
+impl<R: Rounds, V: Variant> ParBlocksSizeUser for Backend<R, V> {
     type ParBlocksSize = U4;
 }
 
 #[cfg(feature = "cipher")]
-impl<R: Rounds> StreamBackend for Backend<R> {
+impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
     #[inline(always)]
     fn gen_ks_block(&mut self, block: &mut Block) {
         // SAFETY: Block is a 64-byte array
@@ -148,7 +152,7 @@ macro_rules! add_assign_vec {
     };
 }
 
-impl<R: Rounds> Backend<R> {
+impl<R: Rounds, V: Variant> Backend<R, V> {
     #[inline(always)]
     /// Generates `num_blocks` blocks and blindly writes them to `dest_ptr`
     ///

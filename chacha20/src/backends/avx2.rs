@@ -1,4 +1,4 @@
-use crate::{Rounds, STATE_WORDS};
+use crate::{Rounds, STATE_WORDS, Variant};
 
 #[cfg(feature = "cipher")]
 use crate::chacha::Block;
@@ -15,115 +15,12 @@ use cipher::{StreamBackend, StreamClosure,
     ParBlocks, ParBlocksSizeUser, BlockSizeUser
 };
 
+use super::BackendType;
+
 /// Number of blocks processed in parallel.
 const PAR_BLOCKS: usize = 4;
 /// Number of `__m256i` to store parallel blocks.
 const N: usize = PAR_BLOCKS / 2;
-
-struct Backend<R: Rounds> {
-    v: [__m256i; 3],
-    ctr: [__m256i; N],
-    _pd: PhantomData<R>,
-}
-
-impl<R: Rounds> Backend<R> {
-    #[inline]
-    unsafe fn new(state: &mut [u32; STATE_WORDS]) -> Self {
-        let state_ptr = state.as_ptr() as *const __m128i;
-        let v = [
-            _mm256_broadcastsi128_si256(_mm_loadu_si128(state_ptr.add(0))),
-            _mm256_broadcastsi128_si256(_mm_loadu_si128(state_ptr.add(1))),
-            _mm256_broadcastsi128_si256(_mm_loadu_si128(state_ptr.add(2))),
-        ];
-        let mut c = _mm256_broadcastsi128_si256(_mm_loadu_si128(state_ptr.add(3)));
-        c = _mm256_add_epi32(c, _mm256_set_epi32(0, 0, 0, 1, 0, 0, 0, 0));
-        let mut ctr = [c; N];
-        for i in 0..N {
-            ctr[i] = c;
-            c = _mm256_add_epi32(c, _mm256_set_epi32(0, 0, 0, 2, 0, 0, 0, 2));
-        }
-        Backend::<R> {
-            v,
-            ctr,
-            _pd: PhantomData,
-        }
-    }
-
-    /// Increments the counter by `amount`
-    #[inline]
-    unsafe fn increment_counter(&mut self, amount: i32) {
-        for c in self.ctr.iter_mut() {
-            *c = _mm256_add_epi32(*c, _mm256_set_epi32(0, 0, 0, amount, 0, 0, 0, amount));
-        }
-    }
-}
-
-#[inline]
-#[cfg(feature = "cipher")]
-#[target_feature(enable = "avx2")]
-pub(crate) unsafe fn inner<R, F>(state: &mut [u32; STATE_WORDS], f: F)
-where
-    R: Rounds,
-    F: StreamClosure<BlockSize = U64>,
-{
-    let mut backend = Backend::<R>::new(state);
-
-    f.call(&mut backend);
-
-    state[12] = _mm256_extract_epi32(backend.ctr[0], 0) as u32;
-}
-
-#[inline]
-#[cfg(feature = "rand_core")]
-#[target_feature(enable = "avx2")]
-/// Generates 4 blocks and blindly writes them to dest
-pub(crate) unsafe fn rng_inner<R>(state: &mut [u32; STATE_WORDS], mut dest_ptr: *mut u8, num_blocks: usize)
-where
-    R: Rounds,
-{
-    let mut backend = Backend::<R>::new(state);
-
-    let num_chunks = num_blocks >> 2;
-    let remaining = num_blocks & 0x03;
-    
-    for _chunk in 0..num_chunks {
-        backend.write_par_ks_blocks(dest_ptr, 4);
-        dest_ptr = dest_ptr.add(256);
-    }
-    if remaining > 0 {
-        backend.write_par_ks_blocks(dest_ptr, remaining);
-    }
-
-    state[12] = _mm256_extract_epi32(backend.ctr[0], 0) as u32;
-}
-
-#[cfg(feature = "cipher")]
-impl<R: Rounds> BlockSizeUser for Backend<R> {
-    type BlockSize = U64;
-}
-
-#[cfg(feature = "cipher")]
-impl<R: Rounds> ParBlocksSizeUser for Backend<R> {
-    type ParBlocksSize = U4;
-}
-
-#[cfg(feature = "cipher")]
-impl<R: Rounds> StreamBackend for Backend<R> {
-    #[inline(always)]
-    fn gen_ks_block(&mut self, dest_ptr: &mut Block) {
-        unsafe {
-            self.write_par_ks_blocks(dest_ptr.as_mut_ptr(), 1);
-        }
-    }
-
-    #[inline(always)]
-    fn gen_par_ks_blocks(&mut self, blocks: &mut ParBlocks<Self>) {
-        // SAFETY: `ParBlocks` is a 256-byte 2D array.
-        unsafe {
-            self.write_par_ks_blocks(blocks.as_mut_ptr() as *mut u8, 4);
-        }
-    }
-}
 
 /// Extracts 1 block of output from a [__m256i; 4]
 macro_rules! extract_1_block {
@@ -147,14 +44,83 @@ macro_rules! extract_2_blocks {
     };
 }
 
-impl<R: Rounds> Backend<R> {
+#[derive(Clone)]
+pub(crate) struct Backend<R: Rounds, V: Variant> {
+    v: [__m256i; 3],
+    ctr: [__m256i; N],
+    _pd: PhantomData<R>,
+    _variant: PhantomData<V>
+}
+
+impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
+    const PAR_BLOCKS: usize = 4;
+
+    #[inline]
+    fn new(state: &mut [u32; STATE_WORDS]) -> Self {
+        unsafe {
+            let state_ptr = state.as_ptr() as *const __m128i;
+            let v = [
+                _mm256_broadcastsi128_si256(_mm_loadu_si128(state_ptr.add(0))),
+                _mm256_broadcastsi128_si256(_mm_loadu_si128(state_ptr.add(1))),
+                _mm256_broadcastsi128_si256(_mm_loadu_si128(state_ptr.add(2))),
+            ];
+            let mut c = _mm256_broadcastsi128_si256(_mm_loadu_si128(state_ptr.add(3)));
+            c = _mm256_add_epi32(c, _mm256_set_epi32(0, 0, 0, 1, 0, 0, 0, 0));
+            let mut ctr = [c; N];
+            for i in 0..N {
+                ctr[i] = c;
+                c = _mm256_add_epi32(c, _mm256_set_epi32(0, 0, 0, 2, 0, 0, 0, 2));
+            }
+            Backend::<R, V> {
+                v,
+                ctr,
+                _pd: PhantomData,
+                _variant: PhantomData
+            }
+        }
+    }
+
+    /// Increments the counter by `amount`
+    #[inline]
+    fn increment_counter(&mut self, amount: i32) {
+        unsafe {
+            for c in self.ctr.iter_mut() {
+                *c = _mm256_add_epi32(*c, _mm256_set_epi32(0, 0, 0, amount, 0, 0, 0, amount));
+            }
+        }
+    }
+
+    fn get_block_pos(&self) -> u32 {
+        unsafe { 
+            let mut register_data: [u32; 4] = core::mem::transmute(_mm256_extracti128_si256(self.ctr[N-1]));
+            register_data[3]
+        }
+    }
+
+    fn set_block_pos(&mut self, amount: u32) {
+        let i32_max = 0xFFFF_FFFF;
+        unsafe {
+            // apply a mask to the counters to set them to 0
+            let mut mask = _mm256_set_epi32(0, 0, 0, i32_max, 0, 0, 0, i32_max);
+            
+            for i in 0..N {
+                self.ctr[i] = _mm256_andnot_si256(self.ctr[i], mask);
+                self.ctr[i] = _mm256_add_epi32(self.ctr[i], _mm256_set_epi32(0, 0, 0, amount as i32, 0, 0, 0, amount as i32));
+                
+                // increasing the counter in separate operations to avoid an i32 overflow before the  
+                // `amount + ix` takes place
+                self.ctr[i] = _mm256_add_epi32(self.ctr[i], _mm256_set_epi32(0, 0, 0, i as i32 * 2 + 1, 0, 0, 0, i as i32 * 2));
+            }
+        }
+    }
+
     #[inline(always)]
     /// Generates `num_blocks` blocks and blindly writes them to `dest_ptr`
     /// 
     /// # Safety
     /// `dest_ptr` must have at least `num_blocks * 64` bytes available to be overwritten, or else it 
     /// could produce undefined behavior
-    unsafe fn write_par_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
+    unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
         assert!(num_blocks <= PAR_BLOCKS, "num_blocks in avx2::write_par_ks_blocks must be <= 4");
 
         let vs = rounds::<R>(&self.v, &self.ctr);
@@ -176,6 +142,36 @@ impl<R: Rounds> Backend<R> {
         }
     }
 }
+
+#[cfg(feature = "cipher")]
+impl<R: Rounds, V: Variant> BlockSizeUser for Backend<R, V> {
+    type BlockSize = U64;
+}
+
+#[cfg(feature = "cipher")]
+impl<R: Rounds, V: Variant> ParBlocksSizeUser for Backend<R, V> {
+    type ParBlocksSize = U4;
+}
+
+#[cfg(feature = "cipher")]
+impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
+    #[inline(always)]
+    fn gen_ks_block(&mut self, dest_ptr: &mut Block) {
+        unsafe {
+            self.write_ks_blocks(dest_ptr.as_mut_ptr(), 1);
+        }
+    }
+
+    #[inline(always)]
+    fn gen_par_ks_blocks(&mut self, blocks: &mut ParBlocks<Self>) {
+        // SAFETY: `ParBlocks` is a 256-byte 2D array.
+        unsafe {
+            self.write_ks_blocks(blocks.as_mut_ptr() as *mut u8, 4);
+        }
+    }
+}
+
+
 
 #[inline]
 #[target_feature(enable = "avx2")]

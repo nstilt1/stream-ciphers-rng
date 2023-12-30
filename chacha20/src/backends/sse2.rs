@@ -1,4 +1,4 @@
-use crate::{Rounds, STATE_WORDS};
+use crate::{Rounds, STATE_WORDS, Variant};
 use core::marker::PhantomData;
 
 #[cfg(feature = "cipher")]
@@ -15,98 +15,99 @@ use cipher::{
     consts::{U1, U64}
 };
 
-struct Backend<R: Rounds> {
+use super::BackendType;
+
+#[derive(Clone)]
+pub(crate) struct Backend<R: Rounds, V: Variant> {
     v: [__m128i; 4],
     _pd: PhantomData<R>,
+    _variant: PhantomData<V>
 }
 
-impl<R: Rounds> Backend<R> {
+impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
+    const PAR_BLOCKS: usize = 1;
     #[inline]
-    unsafe fn new(state: &mut [u32; STATE_WORDS]) -> Self {
-        let state_ptr = state.as_ptr() as *const __m128i;
-        Backend::<R> {
-            v: [
-                _mm_loadu_si128(state_ptr.add(0)),
-                _mm_loadu_si128(state_ptr.add(1)),
-                _mm_loadu_si128(state_ptr.add(2)),
-                _mm_loadu_si128(state_ptr.add(3)),
-            ],
-            _pd: PhantomData,
+    fn new(state: &mut [u32; STATE_WORDS]) -> Self {
+        unsafe {
+            let state_ptr = state.as_ptr() as *const __m128i;
+            Self {
+                v: [
+                    _mm_loadu_si128(state_ptr.add(0)),
+                    _mm_loadu_si128(state_ptr.add(1)),
+                    _mm_loadu_si128(state_ptr.add(2)),
+                    _mm_loadu_si128(state_ptr.add(3)),
+                ],
+                _pd: PhantomData,
+                _variant: PhantomData
+            }
         }
     }
-}
 
-#[cfg(feature = "cipher")]
-impl<R: Rounds> BlockSizeUser for Backend<R> {
-    type BlockSize = U64;
-}
-#[cfg(feature = "cipher")]
-impl<R: Rounds> ParBlocksSizeUser for Backend<R> {
-    type ParBlocksSize = U1;
-}
-
-#[inline]
-#[cfg(feature = "cipher")]
-#[target_feature(enable = "sse2")]
-pub(crate) unsafe fn inner<R, F>(state: &mut [u32; STATE_WORDS], f: F)
-where
-    R: Rounds,
-    F: StreamClosure<BlockSize = U64>,
-{
-    let mut backend = Backend::<R>::new(state);
-
-    f.call(&mut backend);
-
-    state[12] = _mm_cvtsi128_si32(backend.v[3]) as u32;
-}
-
-#[inline]
-#[cfg(feature = "rand_core")]
-#[target_feature(enable = "sse2")]
-/// Generates `num_blocks * 64` bytes and blindly writes them to `dest_ptr`
-/// 
-/// # Safety
-/// `dest_ptr` must have at least `num_blocks * 4` bytes available to be 
-/// overwritten, or else it could produce undefined behavior
-pub(crate) unsafe fn rng_inner<R>(state: &mut [u32; STATE_WORDS], mut dest_ptr: *mut u8, num_blocks: usize)
-where
-    R: Rounds,
-{
-    let mut backend = Backend::<R>::new(state);
-
-    for _i in 0..num_blocks {
-        backend.write_ks_block(dest_ptr);
-        dest_ptr = dest_ptr.add(64);
+    fn get_block_pos(&self) -> u32 {
+        unsafe { _mm_cvtsi128_si32(self.v[3]) as u32 }
     }
 
-    state[12] = _mm_cvtsi128_si32(backend.v[3]) as u32;
-}
+    fn set_block_pos(&mut self, pos: u32) {
+        unsafe {
+            let register_ptr: *mut __m128i = &mut self.v[3];
+            let block_pos = register_ptr as *mut u32;
+            *block_pos = pos.to_le();
+        }
+    }
 
-impl<R: Rounds> Backend<R> {
+    fn increment_counter(&mut self, amount: i32) {
+        unsafe {
+            self.v[3] = _mm_add_epi32(self.v[3], _mm_set_epi32(0, 0, 0, 1))
+        }
+    }
+
     #[inline(always)]
     /// Generates a single block and blindly writes it to `dest_ptr`
     /// 
     /// # Safety
     /// `dest_ptr` must have at least 64 bytes available to be overwritten, or else it 
     /// could produce undefined behavior
-    unsafe fn write_ks_block(&mut self, block: *mut u8) {
-        let res = rounds::<R>(&self.v);
-        self.v[3] = _mm_add_epi32(self.v[3], _mm_set_epi32(0, 0, 0, 1));
+    unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
+        let mut block_ptr = dest_ptr as *mut __m128i;
+        for _i in 0..num_blocks {
+            let res = rounds::<R>(&self.v);
+            self.increment_counter(1);
 
-        let block_ptr = block as *mut __m128i;
-        for i in 0..4 {
-            _mm_storeu_si128(block_ptr.add(i), res[i]);
+            for i in 0..4 {
+                _mm_storeu_si128(block_ptr.add(i), res[i]);
+            }
+            block_ptr = block_ptr.add(4);
         }
     }
 }
+// #[cfg(feature = "cipher")]
+// impl<R: Rounds, V: Variant> Backend<R, V> {
+//     #[inline]
+//     #[target_feature(enable = "sse2")]
+//     pub(crate) unsafe fn inner<F>(&mut self, f: F)
+//     where
+//         F: StreamClosure<BlockSize = U64>,
+//     {
+//         f.call(self)
+//     }
+// }
 
 #[cfg(feature = "cipher")]
-impl<R: Rounds> StreamBackend for Backend<R> {
+impl<R: Rounds, V: Variant> BlockSizeUser for Backend<R, V> {
+    type BlockSize = U64;
+}
+#[cfg(feature = "cipher")]
+impl<R: Rounds, V: Variant> ParBlocksSizeUser for Backend<R, V> {
+    type ParBlocksSize = U1;
+}
+
+#[cfg(feature = "cipher")]
+impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
     #[inline(always)]
     fn gen_ks_block(&mut self, block: &mut Block) {
         // SAFETY: `Block` is a 64-byte array
         unsafe {
-            self.write_ks_block(block.as_mut_ptr());
+            self.write_ks_blocks(block.as_mut_ptr(), 1);
         }
     }
 }

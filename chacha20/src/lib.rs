@@ -134,6 +134,9 @@ mod rng;
 mod xchacha;
 
 mod variants;
+
+use backends::{Backend, BackendType};
+
 use variants::Variant;
 
 #[cfg(feature = "cipher")]
@@ -213,8 +216,8 @@ cfg_if! {
 /// The ChaCha core function.
 #[cfg_attr(feature = "rand_core", derive(Clone))]
 pub struct ChaChaCore<R: Rounds, V: Variant> {
-    /// Internal state of the core function
-    state: [u32; STATE_WORDS],
+    /// The backend core
+    backend: Backend<R, V>,
     /// CPU target feature tokens
     #[allow(dead_code)]
     tokens: Tokens,
@@ -258,7 +261,7 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
             }
         }
         Self {
-            state,
+            backend: Backend::new(&mut state),
             tokens,
             rounds: PhantomData,
             variant: PhantomData,
@@ -272,12 +275,12 @@ impl<R: Rounds, V: Variant> StreamCipherSeekCore for ChaChaCore<R, V> {
 
     #[inline(always)]
     fn get_block_pos(&self) -> Self::Counter {
-        self.state[12]
+        self.backend.get_block_pos()
     }
 
     #[inline(always)]
     fn set_block_pos(&mut self, pos: Self::Counter) {
-        self.state[12] = pos
+        self.backend.set_block_pos(pos)
     }
 }
 
@@ -290,42 +293,7 @@ impl<R: Rounds, V: Variant> StreamCipherCore for ChaChaCore<R, V> {
     }
 
     fn process_with_backend(&mut self, f: impl cipher::StreamClosure<BlockSize = Self::BlockSize>) {
-        cfg_if! {
-            if #[cfg(chacha20_force_soft)] {
-                f.call(&mut backends::soft::Backend(self));
-            } else if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
-                cfg_if! {
-                    if #[cfg(chacha20_force_avx2)] {
-                        unsafe {
-                            backends::avx2::inner::<R, _>(&mut self.state, f);
-                        }
-                    } else if #[cfg(chacha20_force_sse2)] {
-                        unsafe {
-                            backends::sse2::inner::<R, _>(&mut self.state, f);
-                        }
-                    } else {
-                        let (avx2_token, sse2_token) = self.tokens;
-                        if avx2_token.get() {
-                            unsafe {
-                                backends::avx2::inner::<R, _>(&mut self.state, f);
-                            }
-                        } else if sse2_token.get() {
-                            unsafe {
-                                backends::sse2::inner::<R, _>(&mut self.state, f);
-                            }
-                        } else {
-                            f.call(&mut backends::soft::Backend(self));
-                        }
-                    }
-                }
-            } else if #[cfg(all(chacha20_force_neon, target_arch = "aarch64", target_feature = "neon"))] {
-                unsafe {
-                    backends::neon::inner::<R, _>(&mut self.state, f);
-                }
-            } else {
-                f.call(&mut backends::soft::Backend(self));
-            }
-        }
+        self.backend.process_with_backend(f)
     }
 }
 
