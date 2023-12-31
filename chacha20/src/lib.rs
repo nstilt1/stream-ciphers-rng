@@ -135,7 +135,7 @@ mod xchacha;
 
 mod variants;
 
-use backends::{Backend, BackendType};
+use backends::{Backend};
 
 use variants::Variant;
 

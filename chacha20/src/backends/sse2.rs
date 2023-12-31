@@ -11,11 +11,14 @@ use core::arch::x86_64::*;
 
 #[cfg(feature = "cipher")]
 use cipher::{
-    StreamClosure, BlockSizeUser, ParBlocksSizeUser, StreamBackend,
+    BlockSizeUser, ParBlocksSizeUser, StreamBackend,
     consts::{U1, U64}
 };
 
 use super::BackendType;
+
+/// An i32 of all 1s. I'm not sure if i32::MAX would work, since a bit might be 0
+const I32_MAX: i32 = 0xFFFF_FFFFu32 as i32;
 
 #[derive(Clone)]
 pub(crate) struct Backend<R: Rounds, V: Variant> {
@@ -49,15 +52,37 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
 
     fn set_block_pos(&mut self, pos: u32) {
         unsafe {
-            let register_ptr: *mut __m128i = &mut self.v[3];
-            let block_pos = register_ptr as *mut u32;
-            *block_pos = pos.to_le();
+            let mask = _mm_set_epi32(0, 0, 0, I32_MAX);
+            self.v[3] = _mm_andnot_si128(mask, self.v[3]);
+            self.v[3] = _mm_add_epi32(self.v[3], _mm_set_epi32(0, 0, 0, pos as i32));
         }
+    }
+
+    #[cfg(feature = "rand_core")]
+    fn set_nonce(&mut self, nonce: [u32; 3]) {
+        unsafe {
+            let mask = _mm_set_epi32(0, 0, 0, I32_MAX);
+            self.v[3] = _mm_and_si128(mask, self.v[3]);
+            self.v[3] = _mm_add_epi32(_mm_set_epi32(nonce[2] as i32, nonce[1] as i32, nonce[0] as i32, 0), self.v[3]);
+        }
+    }
+
+    #[cfg(feature = "rand_core")]
+    fn get_nonce(&self) -> [u32; 3] {
+        let words: [u32; 4] = unsafe{ core::mem::transmute(self.v[3]) };
+        [words[2], words[1], words[0]]
+    }
+
+    #[cfg(feature = "rand_core")]
+    fn get_seed(&self) -> [u32; 8] {
+        let seed1: [u32; 4] = unsafe { core::mem::transmute(self.v[1]) };
+        let seed2: [u32; 4] = unsafe { core::mem::transmute(self.v[2]) };
+        [seed1[3], seed1[2], seed1[1], seed1[0], seed2[3], seed2[2], seed2[1], seed2[0]]
     }
 
     fn increment_counter(&mut self, amount: i32) {
         unsafe {
-            self.v[3] = _mm_add_epi32(self.v[3], _mm_set_epi32(0, 0, 0, 1))
+            self.v[3] = _mm_add_epi32(self.v[3], _mm_set_epi32(0, 0, 0, amount))
         }
     }
 
@@ -175,9 +200,9 @@ unsafe fn double_quarter_round(v: &mut [__m128i; 4]) {
 #[target_feature(enable = "sse2")]
 unsafe fn rows_to_cols([a, _, c, d]: &mut [__m128i; 4]) {
     // c >>>= 32; d >>>= 64; a >>>= 96;
-    *c = _mm_shuffle_epi32(*c, 0b_00_11_10_01); // _MM_SHUFFLE(0, 3, 2, 1)
-    *d = _mm_shuffle_epi32(*d, 0b_01_00_11_10); // _MM_SHUFFLE(1, 0, 3, 2)
-    *a = _mm_shuffle_epi32(*a, 0b_10_01_00_11); // _MM_SHUFFLE(2, 1, 0, 3)
+    *c = _mm_shuffle_epi32::<0b_00_11_10_01>(*c); // _MM_SHUFFLE(0, 3, 2, 1)
+    *d = _mm_shuffle_epi32::<0b_01_00_11_10>(*d); // _MM_SHUFFLE(1, 0, 3, 2)
+    *a = _mm_shuffle_epi32::<0b_10_01_00_11>(*a); // _MM_SHUFFLE(2, 1, 0, 3)
 }
 
 /// The goal of this function is to transform the state words from:
@@ -201,9 +226,9 @@ unsafe fn rows_to_cols([a, _, c, d]: &mut [__m128i; 4]) {
 #[target_feature(enable = "sse2")]
 unsafe fn cols_to_rows([a, _, c, d]: &mut [__m128i; 4]) {
     // c <<<= 32; d <<<= 64; a <<<= 96;
-    *c = _mm_shuffle_epi32(*c, 0b_10_01_00_11); // _MM_SHUFFLE(2, 1, 0, 3)
-    *d = _mm_shuffle_epi32(*d, 0b_01_00_11_10); // _MM_SHUFFLE(1, 0, 3, 2)
-    *a = _mm_shuffle_epi32(*a, 0b_00_11_10_01); // _MM_SHUFFLE(0, 3, 2, 1)
+    *c = _mm_shuffle_epi32::<0b_10_01_00_11>(*c); // _MM_SHUFFLE(2, 1, 0, 3)
+    *d = _mm_shuffle_epi32::<0b_01_00_11_10>(*d); // _MM_SHUFFLE(1, 0, 3, 2)
+    *a = _mm_shuffle_epi32::<0b_00_11_10_01>(*a); // _MM_SHUFFLE(0, 3, 2, 1)
 }
 
 #[inline]
@@ -212,20 +237,20 @@ unsafe fn add_xor_rot([a, b, c, d]: &mut [__m128i; 4]) {
     // a += b; d ^= a; d <<<= (16, 16, 16, 16);
     *a = _mm_add_epi32(*a, *b);
     *d = _mm_xor_si128(*d, *a);
-    *d = _mm_xor_si128(_mm_slli_epi32(*d, 16), _mm_srli_epi32(*d, 16));
+    *d = _mm_xor_si128(_mm_slli_epi32::<16>(*d), _mm_srli_epi32::<16>(*d));
 
     // c += d; b ^= c; b <<<= (12, 12, 12, 12);
     *c = _mm_add_epi32(*c, *d);
     *b = _mm_xor_si128(*b, *c);
-    *b = _mm_xor_si128(_mm_slli_epi32(*b, 12), _mm_srli_epi32(*b, 20));
+    *b = _mm_xor_si128(_mm_slli_epi32::<12>(*b), _mm_srli_epi32::<20>(*b));
 
     // a += b; d ^= a; d <<<= (8, 8, 8, 8);
     *a = _mm_add_epi32(*a, *b);
     *d = _mm_xor_si128(*d, *a);
-    *d = _mm_xor_si128(_mm_slli_epi32(*d, 8), _mm_srli_epi32(*d, 24));
+    *d = _mm_xor_si128(_mm_slli_epi32::<8>(*d), _mm_srli_epi32::<24>(*d));
 
     // c += d; b ^= c; b <<<= (7, 7, 7, 7);
     *c = _mm_add_epi32(*c, *d);
     *b = _mm_xor_si128(*b, *c);
-    *b = _mm_xor_si128(_mm_slli_epi32(*b, 7), _mm_srli_epi32(*b, 25));
+    *b = _mm_xor_si128(_mm_slli_epi32::<7>(*b), _mm_srli_epi32::<25>(*b));
 }
