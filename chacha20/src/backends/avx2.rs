@@ -165,13 +165,14 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     /// could produce undefined behavior
     unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, mut num_blocks: usize) {
         // passing `results` to `self.rounds()` so that it can hopefully be zeroized less for `fill_bytes()`
-        let mut results: [[__m256i; 4]; N] = [[_mm256_setzero_si256(); 4]; N];
+        //let mut results: [[__m256i; 4]; N] = [[_mm256_setzero_si256(); 4]; N];
 
         let mut _block_ptr = dest_ptr as *mut __m128i;
+        let mut results: [[__m256i; 4]; N] = [[_mm256_setzero_si256(); 4]; N];
 
         //let iterations = (num_blocks / Self::PAR_BLOCKS) + (num_blocks % Self::PAR_BLOCKS > 0) as usize;
         while num_blocks > 0 {
-            self.rounds(&mut results);
+            rounds::<R>(&self.v, &self.ctr, &mut results);
             if num_blocks >= 2 {
                 extract_2_blocks!(_block_ptr, results[0]);
                 if num_blocks >= 4 {
@@ -235,27 +236,26 @@ impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
     }
 }
 
-impl<R: Rounds, V: Variant> Backend<R, V> {
-    #[inline]
-    #[target_feature(enable = "avx2")]
-    /// Overwrites the `self.results` buffer with PAR_BLOCKS results
-    unsafe fn rounds(&mut self, results: &mut [[__m256i; 4]; N]) {
 
-        for i in 0..N {
-            results[i] = [self.v[0], self.v[1], self.v[2], self.ctr[i]];
-        }
-        for _ in 0..R::COUNT {
-            double_quarter_round(results);
-        }
+#[inline]
+#[target_feature(enable = "avx2")]
+/// Overwrites the `self.results` buffer with PAR_BLOCKS results
+unsafe fn rounds<R: Rounds>(v: &[__m256i; 3], c: &[__m256i; N], results: &mut [[__m256i; 4]; N]) {
+    for i in 0..N {
+        results[i] = [v[0], v[1], v[2], c[i]];
+    }
+    for _ in 0..R::COUNT {
+        double_quarter_round(results);
+    }
 
-        for i in 0..N {
-            for j in 0..3 {
-                results[i][j] = _mm256_add_epi32(results[i][j], self.v[j]);
-            }
-            results[i][3] = _mm256_add_epi32(results[i][3], self.ctr[i]);
+    for i in 0..N {
+        for j in 0..3 {
+            results[i][j] = _mm256_add_epi32(results[i][j], v[j]);
         }
+        results[i][3] = _mm256_add_epi32(results[i][3], c[i]);
     }
 }
+
 
 #[inline]
 #[target_feature(enable = "avx2")]

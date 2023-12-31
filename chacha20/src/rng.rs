@@ -188,7 +188,7 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
         //     }
         // }
         // self.backend.rng_inner(dest_ptr, num_blocks)
-        self.backend.rng_inner(dest_ptr, num_blocks)
+        self.rng_inner(dest_ptr, num_blocks)
     }
 }
 
@@ -441,7 +441,7 @@ macro_rules! impl_chacha_rng {
             #[inline]
             pub fn get_word_pos(&self) -> u64 {
                 let mut result =
-                    u64::from(self.core.backend.get_block_pos()) << 4;
+                    u64::from(self.core.get_block_pos()) << 4;
 
                 result += self.index as u64;
                 // eliminate bits above the 36th bit
@@ -463,7 +463,7 @@ macro_rules! impl_chacha_rng {
             #[inline]
             pub fn set_word_pos<W: Into<WordPosInput>>(&mut self, word_offset: W) {
                 let word_offset: WordPosInput = word_offset.into();
-                self.core.backend.set_block_pos(u32::from_le_bytes(word_offset.0[0..4].try_into().unwrap()));
+                self.core.set_block_pos(u32::from_le_bytes(word_offset.0[0..4].try_into().unwrap()));
 
                 // generate will increase block_pos by 4
                 //let index = word_offset.0[4] & 0x0F;
@@ -489,7 +489,7 @@ macro_rules! impl_chacha_rng {
                 for (vec, stream) in stream_words.iter_mut().zip(stream.0.chunks_exact(4)) {
                     *vec = u32::from_le_bytes(stream.try_into().unwrap())
                 }
-                self.core.backend.set_nonce(stream_words);
+                self.core.set_nonce(stream_words);
 
                 if self.index != BUFFER_SIZE {
                     self.generate_and_set(self.index);
@@ -500,7 +500,7 @@ macro_rules! impl_chacha_rng {
             #[inline]
             pub fn get_stream(&self) -> u128 {
                 let mut result = [0u8; 16];
-                for (i, &big) in self.core.backend.get_nonce()
+                for (i, &big) in self.core.get_nonce()
                     .iter()
                     .enumerate()
                 {
@@ -517,7 +517,7 @@ macro_rules! impl_chacha_rng {
             #[inline]
             pub fn get_seed(&self) -> [u8; 32] {
                 let mut result = [0u8; 32];
-                for (i, &big) in self.core.backend.get_seed().iter().enumerate() {
+                for (i, &big) in self.core.get_seed().iter().enumerate() {
                     let index = i * 4;
                     result[index + 0] = big as u8;
                     result[index + 1] = (big >> 8) as u8;
@@ -1100,7 +1100,7 @@ mod tests {
     #[test]
     fn test_chacha_word_pos_zero() {
         let mut rng = ChaChaRng::from_seed(Default::default());
-        assert_eq!(rng.core.backend.get_block_pos(), 0);
+        assert_eq!(rng.core.get_block_pos(), 0);
         assert_eq!(rng.index, BUFFER_SIZE);
         assert_eq!(rng.get_word_pos(), 0);
         rng.set_word_pos(0);
@@ -1124,8 +1124,8 @@ mod tests {
             for block_pos in word_pos_start..word_pos_start+test_amt {
                 rng.set_stream(stream as u128);
                 assert_eq!(stream as u128, rng.get_stream());
-                rng.core.backend.set_block_pos(block_pos);
-                assert_eq!(rng.core.backend.get_block_pos(), block_pos);
+                rng.core.set_block_pos(block_pos);
+                assert_eq!(rng.core.get_block_pos(), block_pos);
 
                 rng.set_word_pos(block_pos as u64);
                 assert_eq!(rng.get_word_pos(), block_pos as u64);

@@ -5,7 +5,7 @@ use cipher::{
     IvSizeUser, KeySizeUser, StreamCipherCoreWrapper,
 };
 
-use crate::{variants::Ietf, ChaChaCore, Rounds, R12, R20, R8};
+use crate::{variants::Ietf, Rounds, R12, R20, R8, backends::ChaChaCore};
 
 /// Key type used by all ChaCha variants.
 pub type Key = GenericArray<u8, U32>;

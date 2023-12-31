@@ -26,13 +26,13 @@ cfg_if! {
         pub(crate) mod avx2;
         pub(crate) mod sse2;
 
-        pub(crate) use self::autodetect::Backend;
+        pub(crate) use self::autodetect::ChaChaCore;
     } else if #[cfg(all(target_arch = "aarch64", target_feature = "neon"))] {
         pub(crate) mod neon;
         pub use self::neon::Backend;
     } else {
         pub(crate) mod soft;
-        pub use self::soft::Backend;
+        pub use self::soft::ChaChaCore;
     }
 }
 
