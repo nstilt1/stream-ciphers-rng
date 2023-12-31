@@ -32,7 +32,6 @@ macro_rules! extract_first_block {
         for i in 0..4 {
             _mm_storeu_si128($block_ptr.add(i), t[i << 1]);
         }
-        $block_ptr = $block_ptr.add(4);
     };
 }
 
@@ -168,7 +167,7 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     /// `dest_ptr` must have at least `num_blocks * 64` bytes available to be overwritten, or else it 
     /// could produce undefined behavior
     unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
-        //assert!(num_blocks <= PAR_BLOCKS, "num_blocks in avx2::write_par_ks_blocks must be <= 4");
+        assert!(num_blocks <= PAR_BLOCKS && num_blocks > 0, "num_blocks in avx2::write_par_ks_blocks must be <= 4");
 
         //self.set_block_pos(self.block_pos);
         self.rounds();
@@ -187,6 +186,26 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
         }
         self.increment_counter(num_blocks as i32);
         //self.block_pos = self.block_pos.wrapping_add(num_blocks as u32);
+    }
+
+    #[cfg(feature = "rand_core")]
+    /// Generates `num_blocks * 64` bytes and blindly writes them to `dest_ptr`
+    /// 
+    /// # Safety
+    /// `dest_ptr` must have at least `num_blocks * 4` bytes available to be 
+    /// overwritten, or else it could produce undefined behavior
+    fn rng_inner(&mut self, mut dest_ptr: *mut u8, num_blocks: usize) {
+        let num_chunks = num_blocks >> 2;
+        let remaining = num_blocks & 0x03;
+        unsafe {
+            for _chunk in 0..num_chunks {
+                self.write_ks_blocks(dest_ptr, 4);
+                dest_ptr = dest_ptr.add(256);
+            }
+            if remaining > 0 {
+                self.write_ks_blocks(dest_ptr, remaining)
+            }
+        }
     }
 }
 
