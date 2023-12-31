@@ -194,6 +194,9 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
 
         let mut _block_ptr = dest_ptr as *mut __m128i;
 
+        // I know this looks nasty. This is the outcome of trying to share a `results` block
+        // for use between `gen_ks_block` calls. I will probably not use this.
+
         // if (self.block % 2 == 1) to check if `extract_2_blocks` can be used
         if self.block & 0b01 == 0 {
             if num_blocks >= 2 {
