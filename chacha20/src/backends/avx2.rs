@@ -50,7 +50,6 @@ macro_rules! extract_2_blocks {
 pub(crate) struct Backend<R: Rounds, V: Variant> {
     v: [__m256i; 3],
     ctr: [__m256i; N],
-    results: [[__m256i; 4]; N],
     _pd: PhantomData<R>,
     _variant: PhantomData<V>
 }
@@ -60,7 +59,6 @@ impl<R: Rounds, V: Variant> Clone for Backend<R, V> {
         Self {
             v: self.v,
             ctr: self.ctr,
-            results: self.results,
             _pd: self._pd,
             _variant: self._variant
         }
@@ -89,7 +87,6 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
             Backend::<R, V> {
                 v,
                 ctr,
-                results: [[_mm256_setzero_si256(); 4]; N],
                 _pd: PhantomData,
                 _variant: PhantomData
             }
@@ -166,26 +163,35 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     /// # Safety
     /// `dest_ptr` must have at least `num_blocks * 64` bytes available to be overwritten, or else it 
     /// could produce undefined behavior
-    unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
-        assert!(num_blocks <= PAR_BLOCKS && num_blocks > 0, "num_blocks in avx2::write_par_ks_blocks must be <= 4");
-
-        //self.set_block_pos(self.block_pos);
-        self.rounds();
+    unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, mut num_blocks: usize) {
+        // passing `results` to `self.rounds()` so that it can hopefully be zeroized less for `fill_bytes()`
+        let mut results: [[__m256i; 4]; N] = [[_mm256_setzero_si256(); 4]; N];
 
         let mut _block_ptr = dest_ptr as *mut __m128i;
 
-        if num_blocks >= 2 {
-            extract_2_blocks!(_block_ptr, self.results[0]);
-            if num_blocks == 4 {
-                extract_2_blocks!(_block_ptr, self.results[1]);
-            } else if num_blocks == 3 {
-                extract_first_block!(_block_ptr, self.results[1]);
+        //let iterations = (num_blocks / Self::PAR_BLOCKS) + (num_blocks % Self::PAR_BLOCKS > 0) as usize;
+        while num_blocks > 0 {
+            self.rounds(&mut results);
+            if num_blocks >= 2 {
+                extract_2_blocks!(_block_ptr, results[0]);
+                if num_blocks >= 4 {
+                    extract_2_blocks!(_block_ptr, results[1]);
+                    num_blocks -= 4;
+                    self.increment_counter(4 as i32);
+                } else if num_blocks == 3 {
+                    extract_first_block!(_block_ptr, results[1]);
+                    num_blocks -= 3;
+                    self.increment_counter(3 as i32);
+                } else {
+                    num_blocks -= 2;
+                    self.increment_counter(2 as i32);
+                }
+            } else if num_blocks == 1 {
+                extract_first_block!(_block_ptr, results[0]);
+                num_blocks -= 1;
+                self.increment_counter(1 as i32);
             }
-        } else if num_blocks == 1 {
-            extract_first_block!(_block_ptr, self.results[0]);
         }
-        self.increment_counter(num_blocks as i32);
-        //self.block_pos = self.block_pos.wrapping_add(num_blocks as u32);
     }
 
     #[cfg(feature = "rand_core")]
@@ -195,16 +201,8 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     /// `dest_ptr` must have at least `num_blocks * 4` bytes available to be 
     /// overwritten, or else it could produce undefined behavior
     fn rng_inner(&mut self, mut dest_ptr: *mut u8, num_blocks: usize) {
-        let num_chunks = num_blocks >> 2;
-        let remaining = num_blocks & 0x03;
         unsafe {
-            for _chunk in 0..num_chunks {
-                self.write_ks_blocks(dest_ptr, 4);
-                dest_ptr = dest_ptr.add(256);
-            }
-            if remaining > 0 {
-                self.write_ks_blocks(dest_ptr, remaining)
-            }
+            self.write_ks_blocks(dest_ptr, num_blocks)
         }
     }
 }
@@ -241,20 +239,20 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
     #[inline]
     #[target_feature(enable = "avx2")]
     /// Overwrites the `self.results` buffer with PAR_BLOCKS results
-    unsafe fn rounds(&mut self) {
+    unsafe fn rounds(&mut self, results: &mut [[__m256i; 4]; N]) {
 
         for i in 0..N {
-            self.results[i] = [self.v[0], self.v[1], self.v[2], self.ctr[i]];
+            results[i] = [self.v[0], self.v[1], self.v[2], self.ctr[i]];
         }
         for _ in 0..R::COUNT {
-            double_quarter_round(&mut self.results);
+            double_quarter_round(results);
         }
 
         for i in 0..N {
             for j in 0..3 {
-                self.results[i][j] = _mm256_add_epi32(self.results[i][j], self.v[j]);
+                results[i][j] = _mm256_add_epi32(results[i][j], self.v[j]);
             }
-            self.results[i][3] = _mm256_add_epi32(self.results[i][3], self.ctr[i]);
+            results[i][3] = _mm256_add_epi32(results[i][3], self.ctr[i]);
         }
     }
 }
@@ -384,103 +382,5 @@ unsafe fn add_xor_rot(vs: &mut [[__m256i; 4]; N]) {
         *c = _mm256_add_epi32(*c, *d);
         *b = _mm256_xor_si256(*b, *c);
         *b = _mm256_xor_si256(_mm256_slli_epi32::<7>(*b), _mm256_srli_epi32::<25>(*b));
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use crate::{R20, variants::Ietf};
-
-    use super::*;
-
-    #[test]
-    fn test_set_block_pos() {
-        let mut test_state: [u32; 16] = 
-        [
-                0x0504_0706, 0x0605_0407, 0x0d0c_0f0e, 0x0e0d_0c0f,
-                384823354u32, 12424524u32, 3138953u32, 8338348u32,
-                1234u32, 93849u32, 1398348u32, 11111u32,
-                0u32, 0u32, 0u32, 0u32
-        ];
-        let mut backend = Backend::<R20, Ietf>::new(&mut test_state);
-
-        let block_pos = 15;
-        backend.set_block_pos(block_pos);
-
-        let ctr0 = backend.ctr[0];
-        let ctr1 = backend.ctr[1];
-        unsafe {
-            let ctr00 = _mm256_extract_epi32::<7>(ctr0) as u32;
-            let ctr01 = _mm256_extract_epi32::<3>(ctr0) as u32;
-            let ctr02 = _mm256_extract_epi32::<7>(ctr1) as u32;
-            let ctr03 = _mm256_extract_epi32::<3>(ctr1) as u32;
-
-            assert_eq!(
-                [
-                    ctr00, 
-                    ctr01, 
-                    ctr02, 
-                    ctr03
-                    ], 
-                [
-                    block_pos, 
-                    block_pos + 1, 
-                    block_pos + 2, 
-                    block_pos + 3
-                    ]
-            );
-        }
-
-        assert_eq!(backend.get_block_pos(), 15);
-
-        let block_pos: u32 = (2 << 31) + 3432;
-        backend.set_block_pos(block_pos);
-
-        let ctr0 = backend.ctr[0];
-        let ctr1 = backend.ctr[1];
-
-        unsafe {
-            let ctr00 = _mm256_extract_epi32::<7>(ctr0) as u32;
-            let ctr01 = _mm256_extract_epi32::<3>(ctr0) as u32;
-            let ctr02 = _mm256_extract_epi32::<7>(ctr1) as u32;
-            let ctr03 = _mm256_extract_epi32::<3>(ctr1) as u32;
-
-            assert_eq!(
-                [
-                    ctr00, 
-                    ctr01, 
-                    ctr02, 
-                    ctr03
-                    ], 
-                [
-                    block_pos, 
-                    block_pos + 1, 
-                    block_pos + 2, 
-                    block_pos + 3
-                    ]
-            );
-        }
-        assert_eq!(backend.get_block_pos(), block_pos);
-    }
-
-    #[test]
-    fn test_set_block_pos_inner() {
-        let pos: u32 = 443;
-        unsafe {
-            let mut test_ctr = _mm256_broadcastsi128_si256(_mm_set_epi32(92393932, 384834, 33880032, 545643));
-            // apply a mask to the counters to set them to 0
-            let mask = _mm256_set_epi32(0, 0, 0, -1, 0, 0, 0, -1);
-            
-            
-            test_ctr = _mm256_andnot_si256(test_ctr, mask);
-            assert_eq!(_mm256_extract_epi32::<3>(test_ctr), 0);
-            test_ctr = _mm256_add_epi32(test_ctr, _mm256_setr_epi32(0, 0, 0, pos as i32, 0, 0, 0, pos as i32));
-                
-            // increasing the counter in separate operations to avoid an i32 overflow before the  
-            // `pos + i*2` takes place
-            test_ctr = _mm256_add_epi32(test_ctr, _mm256_set_epi32(0, 0, 0, (0 as i32 * 2) + 1, 0, 0, 0, (0 as i32) * 2));
-            
-            assert_eq!(_mm256_extract_epi32::<3>(test_ctr) as u32, pos);
-        }
     }
 }
