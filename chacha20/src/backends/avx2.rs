@@ -60,7 +60,7 @@ pub(crate) struct Backend<R: Rounds, V: Variant> {
     v: [__m256i; 3],
     ctr: [__m256i; N],
     results: [[__m256i; 4]; N],
-    block_pos: u32,
+    ctr_regular: [u32; 4],
     _pd: PhantomData<R>,
     _variant: PhantomData<V>
 }
@@ -71,7 +71,7 @@ impl<R: Rounds, V: Variant> Clone for Backend<R, V> {
             v: self.v,
             ctr: self.ctr,
             results: self.results,
-            block_pos: self.block_pos,
+            ctr_regular: self.ctr_regular,
             _pd: self._pd,
             _variant: self._variant
         }
@@ -101,7 +101,7 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
                 v,
                 ctr,
                 results: [[_mm256_setzero_si256(); 4]; N],
-                block_pos: state[12],
+                ctr_regular: [state[12], state[13], state[14], state[15]],
                 _pd: PhantomData,
                 _variant: PhantomData
             }
@@ -119,23 +119,20 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     }
 
     fn get_block_pos(&self) -> u32 {
-        self.block_pos
+        self.ctr_regular[0]
     }
 
     fn set_block_pos(&mut self, pos: u32) {
         let max: i32 = 0xFFFF_FFFFu32 as i32;
-        self.block_pos = pos;
+        self.ctr_regular[0] = pos;
         unsafe {
-            // apply a mask to the counters to set them to 0
-            let mask = _mm256_set_epi32(0, 0, 0, max, 0, 0, 0, max);
-            
+            let ptr = self.ctr_regular.as_mut_ptr() as *mut __m128i;
+            let mut c = _mm256_broadcastsi128_si256(_mm_loadu_si128(ptr));
+            c = _mm256_add_epi32(c, _mm256_set_epi32(0, 0, 0, 1, 0, 0, 0, 0));
+            let mut ctr = [c; N];
             for i in 0..N {
-                self.ctr[i] = _mm256_andnot_si256(self.ctr[i], mask);
-                self.ctr[i] = _mm256_add_epi32(self.ctr[i], _mm256_set_epi32(0, 0, 0, pos as i32, 0, 0, 0, pos as i32));
-                
-                // increasing the counter in separate operations to avoid an i32 overflow before the  
-                // `pos + i*2` takes place
-                self.ctr[i] = _mm256_add_epi32(self.ctr[i], _mm256_set_epi32(0, 0, 0, (i as i32 * 2) + 1, 0, 0, 0, (i as i32) * 2));
+                ctr[i] = c;
+                c = _mm256_add_epi32(c, _mm256_set_epi32(0, 0, 0, 2, 0, 0, 0, 2));
             }
         }
     }
@@ -143,22 +140,24 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     #[cfg(feature = "rand_core")]
     fn set_nonce(&mut self, nonce: [u32; 3]) {
         let max: i32 = 0xFFFF_FFFFu32 as i32;
+        self.ctr_regular[1] = nonce[0];
+        self.ctr_regular[2] = nonce[1];
+        self.ctr_regular[3] = nonce[2];
         unsafe {
-            // apply a mask to the nonces to set them to 0
-            let mask = _mm256_set_epi32(0x0, 0x0, 0x0, max, 0x0, 0x0, 0x0, max);
-
+            let ptr = self.ctr_regular.as_mut_ptr() as *mut __m128i;
+            let mut c = _mm256_broadcastsi128_si256(_mm_loadu_si128(ptr));
+            c = _mm256_add_epi32(c, _mm256_set_epi32(0, 0, 0, 1, 0, 0, 0, 0));
+            let mut ctr = [c; N];
             for i in 0..N {
-                self.ctr[i] = _mm256_and_si256(self.ctr[i], mask);
-                // add in the nonce
-                self.ctr[i] = _mm256_add_epi32(self.ctr[i], _mm256_set_epi32(nonce[2] as i32, nonce[1] as i32, nonce[0] as i32, 0, nonce[2] as i32, nonce[1] as i32, nonce[0] as i32, 0));
+                ctr[i] = c;
+                c = _mm256_add_epi32(c, _mm256_set_epi32(0, 0, 0, 2, 0, 0, 0, 2));
             }
         }
     }
 
     #[cfg(feature = "rand_core")]
     fn get_nonce(&self) -> [u32; 3] {
-        let words: [u32; 4] = unsafe { core::mem::transmute(_mm256_extracti128_si256::<0>(self.ctr[N-1])) };
-        [words[1], words[2], words[3]]
+        [self.ctr_regular[1], self.ctr_regular[2], self.ctr_regular[3]]
     }
 
     #[cfg(feature = "rand_core")]
@@ -195,7 +194,8 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
         } else if num_blocks == 1 {
             extract_first_block!(_block_ptr, self.results[0]);
         }
-        self.block_pos = self.block_pos.wrapping_add(num_blocks as u32);
+        self.increment_counter(num_blocks as i32);
+        self.ctr_regular[0] = self.ctr_regular[0].wrapping_add(num_blocks as u32);
     }
 }
 
