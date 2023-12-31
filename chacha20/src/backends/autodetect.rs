@@ -11,15 +11,15 @@ cpufeatures::new!(sse2_cpuid, "sse2");
 
 /// The ChaCha20 core function.
 pub struct Backend<R: Rounds, V: Variant> {
-    inner: Inner<R, V>,
+    pub(crate) inner: Inner<R, V>,
     avx2_token: avx2_cpuid::InitToken,
     sse2_token: sse2_cpuid::InitToken,
 }
 
-union Inner<R: Rounds, V: Variant> {
-    avx2: ManuallyDrop<avx2::Backend<R, V>>,
-    sse2: ManuallyDrop<sse2::Backend<R, V>>,
-    soft: ManuallyDrop<soft::Backend<R, V>>,
+pub(crate) union Inner<R: Rounds, V: Variant> {
+    pub(crate) avx2: ManuallyDrop<avx2::Backend<R, V>>,
+    pub(crate) sse2: ManuallyDrop<sse2::Backend<R, V>>,
+    pub(crate) soft: ManuallyDrop<soft::Backend<R, V>>,
 }
 
 #[cfg(feature = "cipher")]

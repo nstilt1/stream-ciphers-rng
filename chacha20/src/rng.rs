@@ -161,6 +161,33 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
     /// - `dest_ptr` must have `num_blocks * 64 bytes` available to be overwritten.
     #[cfg(feature = "rand_core")]
     unsafe fn generate(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
+        // cfg_if! {
+        //     if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
+        //         cfg_if! {
+        //             if #[cfg(chacha20_force_soft)] {
+        //                 unsafe { (*self.backend.inner.soft).rng_inner(dest_ptr, num_blocks) }
+        //             } else if #[cfg(chacha20_force_avx2)] {
+        //                 unsafe { (*self.backend.inner.avx2).rng_inner(dest_ptr, num_blocks) }
+        //             } else if #[cfg(chacha20_force_sse2)] {
+        //                 unsafe { (*self.backend.inner.sse2).rng_inner(dest_ptr, num_blocks) }
+        //             } else {
+        //                 let (avx2_token, sse2_token) = self.tokens;
+        //                 if avx2_token.get() {
+        //                     unsafe { (*self.backend.inner.avx2).rng_inner(dest_ptr, num_blocks) }
+        //                 } else if sse2_token.get() {
+        //                     unsafe { (*self.backend.inner.sse2).rng_inner(dest_ptr, num_blocks) }
+        //                 } else {
+        //                     unsafe { (*self.backend.inner.soft).rng_inner(dest_ptr, num_blocks) }
+        //                 }
+        //             }
+        //         }
+        //     } else if #[cfg(all(target_arch = "aarch64", target_feature = "neon"))] {
+        //         unsafe { (*self.backend.rng_inner(dest_ptr, num_blocks)) }
+        //     } else {
+        //         unsafe { (*self.backend.rng_inner(dest_ptr, num_blocks))}
+        //     }
+        // }
+        // self.backend.rng_inner(dest_ptr, num_blocks)
         self.backend.rng_inner(dest_ptr, num_blocks)
     }
 }
@@ -414,7 +441,7 @@ macro_rules! impl_chacha_rng {
             #[inline]
             pub fn get_word_pos(&self) -> u64 {
                 let mut result =
-                    u64::from(self.core.backend.get_block_pos().wrapping_sub(BUF_BLOCKS.into())) << 4;
+                    u64::from(self.core.backend.get_block_pos()) << 4;
 
                 result += self.index as u64;
                 // eliminate bits above the 36th bit
@@ -921,6 +948,7 @@ mod tests {
 
         // Test block 2 by skipping block 0 and 1
         let mut rng1 = ChaChaRng::from_seed(seed.into());
+        assert_eq!(rng1.get_word_pos(), 0);
         for _ in 0..32 {
             rng1.next_u32();
         }

@@ -22,6 +22,9 @@ const PAR_BLOCKS: usize = 4;
 /// Number of `__m256i` to store parallel blocks.
 const N: usize = PAR_BLOCKS / 2;
 
+/// The i32 max for use with masks
+const I32_MAX: i32 = 0xFFFF_FFFFu32 as i32;
+
 /// Extracts the first block of output from a [__m256i; 4]
 macro_rules! extract_first_block {
     ($block_ptr:expr, $block_pair:expr) => {
@@ -45,22 +48,10 @@ macro_rules! extract_2_blocks {
     };
 }
 
-/// Extracts the second block of output from a [__m256i; 4]
-macro_rules! extract_second_block {
-    ($block_ptr:expr, $block_pair:expr) => {
-        let t: [__m128i; 8] = core::mem::transmute($block_pair);
-        for i in 0..4 {
-            _mm_storeu_si128($block_ptr.add(i), t[(i<<1) + 1])
-        }
-        $block_ptr = $block_ptr.add(4);
-    };
-}
-
 pub(crate) struct Backend<R: Rounds, V: Variant> {
     v: [__m256i; 3],
     ctr: [__m256i; N],
     results: [[__m256i; 4]; N],
-    ctr_regular: [u32; 4],
     _pd: PhantomData<R>,
     _variant: PhantomData<V>
 }
@@ -71,7 +62,6 @@ impl<R: Rounds, V: Variant> Clone for Backend<R, V> {
             v: self.v,
             ctr: self.ctr,
             results: self.results,
-            ctr_regular: self.ctr_regular,
             _pd: self._pd,
             _variant: self._variant
         }
@@ -101,7 +91,6 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
                 v,
                 ctr,
                 results: [[_mm256_setzero_si256(); 4]; N],
-                ctr_regular: [state[12], state[13], state[14], state[15]],
                 _pd: PhantomData,
                 _variant: PhantomData
             }
@@ -119,20 +108,24 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     }
 
     fn get_block_pos(&self) -> u32 {
-        self.ctr_regular[0]
+        //self.block_pos
+        unsafe {
+            _mm256_extract_epi32::<7>(self.ctr[0]) as u32
+        }
     }
 
     fn set_block_pos(&mut self, pos: u32) {
-        let max: i32 = 0xFFFF_FFFFu32 as i32;
-        self.ctr_regular[0] = pos;
         unsafe {
-            let ptr = self.ctr_regular.as_mut_ptr() as *mut __m128i;
-            let mut c = _mm256_broadcastsi128_si256(_mm_loadu_si128(ptr));
-            c = _mm256_add_epi32(c, _mm256_set_epi32(0, 0, 0, 1, 0, 0, 0, 0));
-            let mut ctr = [c; N];
+            // apply a mask to the counters to set them to 0
+            let mask = _mm256_set_epi32(0, 0, 0, I32_MAX, 0, 0, 0, I32_MAX);
+            
             for i in 0..N {
-                ctr[i] = c;
-                c = _mm256_add_epi32(c, _mm256_set_epi32(0, 0, 0, 2, 0, 0, 0, 2));
+                self.ctr[i] = _mm256_andnot_si256(self.ctr[i], mask);
+                self.ctr[i] = _mm256_add_epi32(self.ctr[i], _mm256_setr_epi32(0, 0, 0, pos as i32, 0, 0, 0, pos as i32));
+                
+                // increasing the counter in separate operations to avoid an i32 overflow before the  
+                // `pos + i*2` takes place
+                self.ctr[i] = _mm256_add_epi32(self.ctr[i], _mm256_setr_epi32(0, 0, 0, (i * 2) as i32 + 1, 0, 0, 0, (i * 2) as i32));
             }
         }
     }
@@ -140,24 +133,22 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     #[cfg(feature = "rand_core")]
     fn set_nonce(&mut self, nonce: [u32; 3]) {
         let max: i32 = 0xFFFF_FFFFu32 as i32;
-        self.ctr_regular[1] = nonce[0];
-        self.ctr_regular[2] = nonce[1];
-        self.ctr_regular[3] = nonce[2];
         unsafe {
-            let ptr = self.ctr_regular.as_mut_ptr() as *mut __m128i;
-            let mut c = _mm256_broadcastsi128_si256(_mm_loadu_si128(ptr));
-            c = _mm256_add_epi32(c, _mm256_set_epi32(0, 0, 0, 1, 0, 0, 0, 0));
-            let mut ctr = [c; N];
+            // apply a mask to the nonces to set them to 0
+            let mask = _mm256_set_epi32(0x0, 0x0, 0x0, max, 0x0, 0x0, 0x0, max);
+
             for i in 0..N {
-                ctr[i] = c;
-                c = _mm256_add_epi32(c, _mm256_set_epi32(0, 0, 0, 2, 0, 0, 0, 2));
+                self.ctr[i] = _mm256_and_si256(self.ctr[i], mask);
+                // add in the nonce
+                self.ctr[i] = _mm256_add_epi32(self.ctr[i], _mm256_set_epi32(nonce[2] as i32, nonce[1] as i32, nonce[0] as i32, 0, nonce[2] as i32, nonce[1] as i32, nonce[0] as i32, 0));
             }
         }
     }
 
     #[cfg(feature = "rand_core")]
     fn get_nonce(&self) -> [u32; 3] {
-        [self.ctr_regular[1], self.ctr_regular[2], self.ctr_regular[3]]
+        let words: [u32; 4] = unsafe { core::mem::transmute(_mm256_extracti128_si256::<0>(self.ctr[N-1])) };
+        [words[1], words[2], words[3]]
     }
 
     #[cfg(feature = "rand_core")]
@@ -195,7 +186,7 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
             extract_first_block!(_block_ptr, self.results[0]);
         }
         self.increment_counter(num_blocks as i32);
-        self.ctr_regular[0] = self.ctr_regular[0].wrapping_add(num_blocks as u32);
+        //self.block_pos = self.block_pos.wrapping_add(num_blocks as u32);
     }
 }
 
@@ -232,6 +223,7 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
     #[target_feature(enable = "avx2")]
     /// Overwrites the `self.results` buffer with PAR_BLOCKS results
     unsafe fn rounds(&mut self) {
+
         for i in 0..N {
             self.results[i] = [self.v[0], self.v[1], self.v[2], self.ctr[i]];
         }
@@ -373,5 +365,103 @@ unsafe fn add_xor_rot(vs: &mut [[__m256i; 4]; N]) {
         *c = _mm256_add_epi32(*c, *d);
         *b = _mm256_xor_si256(*b, *c);
         *b = _mm256_xor_si256(_mm256_slli_epi32::<7>(*b), _mm256_srli_epi32::<25>(*b));
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{R20, variants::Ietf};
+
+    use super::*;
+
+    #[test]
+    fn test_set_block_pos() {
+        let mut test_state: [u32; 16] = 
+        [
+                0x0504_0706, 0x0605_0407, 0x0d0c_0f0e, 0x0e0d_0c0f,
+                384823354u32, 12424524u32, 3138953u32, 8338348u32,
+                1234u32, 93849u32, 1398348u32, 11111u32,
+                0u32, 0u32, 0u32, 0u32
+        ];
+        let mut backend = Backend::<R20, Ietf>::new(&mut test_state);
+
+        let block_pos = 15;
+        backend.set_block_pos(block_pos);
+
+        let ctr0 = backend.ctr[0];
+        let ctr1 = backend.ctr[1];
+        unsafe {
+            let ctr00 = _mm256_extract_epi32::<7>(ctr0) as u32;
+            let ctr01 = _mm256_extract_epi32::<3>(ctr0) as u32;
+            let ctr02 = _mm256_extract_epi32::<7>(ctr1) as u32;
+            let ctr03 = _mm256_extract_epi32::<3>(ctr1) as u32;
+
+            assert_eq!(
+                [
+                    ctr00, 
+                    ctr01, 
+                    ctr02, 
+                    ctr03
+                    ], 
+                [
+                    block_pos, 
+                    block_pos + 1, 
+                    block_pos + 2, 
+                    block_pos + 3
+                    ]
+            );
+        }
+
+        assert_eq!(backend.get_block_pos(), 15);
+
+        let block_pos: u32 = (2 << 31) + 3432;
+        backend.set_block_pos(block_pos);
+
+        let ctr0 = backend.ctr[0];
+        let ctr1 = backend.ctr[1];
+
+        unsafe {
+            let ctr00 = _mm256_extract_epi32::<7>(ctr0) as u32;
+            let ctr01 = _mm256_extract_epi32::<3>(ctr0) as u32;
+            let ctr02 = _mm256_extract_epi32::<7>(ctr1) as u32;
+            let ctr03 = _mm256_extract_epi32::<3>(ctr1) as u32;
+
+            assert_eq!(
+                [
+                    ctr00, 
+                    ctr01, 
+                    ctr02, 
+                    ctr03
+                    ], 
+                [
+                    block_pos, 
+                    block_pos + 1, 
+                    block_pos + 2, 
+                    block_pos + 3
+                    ]
+            );
+        }
+        assert_eq!(backend.get_block_pos(), block_pos);
+    }
+
+    #[test]
+    fn test_set_block_pos_inner() {
+        let pos: u32 = 443;
+        unsafe {
+            let mut test_ctr = _mm256_broadcastsi128_si256(_mm_set_epi32(92393932, 384834, 33880032, 545643));
+            // apply a mask to the counters to set them to 0
+            let mask = _mm256_set_epi32(0, 0, 0, -1, 0, 0, 0, -1);
+            
+            
+            test_ctr = _mm256_andnot_si256(test_ctr, mask);
+            assert_eq!(_mm256_extract_epi32::<3>(test_ctr), 0);
+            test_ctr = _mm256_add_epi32(test_ctr, _mm256_setr_epi32(0, 0, 0, pos as i32, 0, 0, 0, pos as i32));
+                
+            // increasing the counter in separate operations to avoid an i32 overflow before the  
+            // `pos + i*2` takes place
+            test_ctr = _mm256_add_epi32(test_ctr, _mm256_set_epi32(0, 0, 0, (0 as i32 * 2) + 1, 0, 0, 0, (0 as i32) * 2));
+            
+            assert_eq!(_mm256_extract_epi32::<3>(test_ctr) as u32, pos);
+        }
     }
 }
