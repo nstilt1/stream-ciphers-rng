@@ -60,7 +60,7 @@ pub(crate) struct Backend<R: Rounds, V: Variant> {
     v: [__m256i; 3],
     ctr: [__m256i; N],
     results: [[__m256i; 4]; N],
-    block: usize,
+    block_pos: u32,
     _pd: PhantomData<R>,
     _variant: PhantomData<V>
 }
@@ -71,7 +71,7 @@ impl<R: Rounds, V: Variant> Clone for Backend<R, V> {
             v: self.v,
             ctr: self.ctr,
             results: self.results,
-            block: self.block,
+            block_pos: self.block_pos,
             _pd: self._pd,
             _variant: self._variant
         }
@@ -101,7 +101,7 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
                 v,
                 ctr,
                 results: [[_mm256_setzero_si256(); 4]; N],
-                block: 4,
+                block_pos: state[12],
                 _pd: PhantomData,
                 _variant: PhantomData
             }
@@ -119,27 +119,24 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     }
 
     fn get_block_pos(&self) -> u32 {
-        unsafe { 
-            let register_data: [u32; 4] = core::mem::transmute(_mm256_extracti128_si256::<0>(self.ctr[0]));
-            register_data[0]
-        }
+        self.block_pos
     }
 
-    fn set_block_pos(&mut self, amount: u32) {
+    fn set_block_pos(&mut self, pos: u32) {
         let max: i32 = 0xFFFF_FFFFu32 as i32;
+        self.block_pos = pos;
         unsafe {
             // apply a mask to the counters to set them to 0
             let mask = _mm256_set_epi32(0, 0, 0, max, 0, 0, 0, max);
             
             for i in 0..N {
                 self.ctr[i] = _mm256_andnot_si256(self.ctr[i], mask);
-                self.ctr[i] = _mm256_add_epi32(self.ctr[i], _mm256_set_epi32(0, 0, 0, amount as i32, 0, 0, 0, amount as i32));
+                self.ctr[i] = _mm256_add_epi32(self.ctr[i], _mm256_set_epi32(0, 0, 0, pos as i32, 0, 0, 0, pos as i32));
                 
                 // increasing the counter in separate operations to avoid an i32 overflow before the  
-                // `amount + i*2` takes place
+                // `pos + i*2` takes place
                 self.ctr[i] = _mm256_add_epi32(self.ctr[i], _mm256_set_epi32(0, 0, 0, (i as i32 * 2) + 1, 0, 0, 0, (i as i32) * 2));
             }
-            self.block = 4;
         }
     }
 
@@ -154,10 +151,6 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
                 self.ctr[i] = _mm256_and_si256(self.ctr[i], mask);
                 // add in the nonce
                 self.ctr[i] = _mm256_add_epi32(self.ctr[i], _mm256_set_epi32(nonce[2] as i32, nonce[1] as i32, nonce[0] as i32, 0, nonce[2] as i32, nonce[1] as i32, nonce[0] as i32, 0));
-            }
-
-            if self.block != 4 {
-                self.rounds();
             }
         }
     }
@@ -187,68 +180,22 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
         //assert!(num_blocks <= PAR_BLOCKS, "num_blocks in avx2::write_par_ks_blocks must be <= 4");
 
-        if self.block == Self::PAR_BLOCKS {
-            self.rounds();
-            self.block = 0;
-        }
+        //self.set_block_pos(self.block_pos);
+        self.rounds();
 
         let mut _block_ptr = dest_ptr as *mut __m128i;
 
-        // I know this looks nasty. This is the outcome of trying to share a `results` block
-        // for use between `gen_ks_block` calls. I will probably not use this.
-
-        // if (self.block % 2 == 1) to check if `extract_2_blocks` can be used
-        if self.block & 0b01 == 0 {
-            if num_blocks >= 2 {
-                extract_2_blocks!(_block_ptr, self.results[self.block >> 1]);
-                self.block += 2;
-                if num_blocks == 4 {
-                    if self.block == Self::PAR_BLOCKS {
-                        self.rounds();
-                        self.block = 0;
-                    }
-                    extract_2_blocks!(_block_ptr, self.results[self.block >> 1]);
-                    self.block += 2;
-                } else if num_blocks == 3 {
-                    if self.block == Self::PAR_BLOCKS {
-                        self.rounds();
-                        self.block = 0;
-                    }
-                    extract_first_block!(_block_ptr, self.results[self.block >> 1]);
-                    self.block += 1;
-                }
-            }else if num_blocks == 1 {
-                extract_first_block!(_block_ptr, self.results[self.block >> 1]);
-                self.block += 1;
+        if num_blocks >= 2 {
+            extract_2_blocks!(_block_ptr, self.results[0]);
+            if num_blocks == 4 {
+                extract_2_blocks!(_block_ptr, self.results[1]);
+            } else if num_blocks == 3 {
+                extract_first_block!(_block_ptr, self.results[1]);
             }
-        } else {
-            // self.block is either 1 or 3
-            extract_second_block!(_block_ptr, self.results[self.block >> 1]);
-            self.block += 1;
-            if num_blocks >= 3 {
-                if self.block == Self::PAR_BLOCKS {
-                    self.rounds();
-                    self.block = 0;
-                }
-                extract_2_blocks!(_block_ptr, self.results[self.block >> 1]);
-                self.block += 2;
-                if num_blocks == 4 {
-                    if self.block == Self::PAR_BLOCKS {
-                        self.rounds();
-                        self.block = 0;
-                    }
-                    extract_first_block!(_block_ptr, self.results[self.block >> 1]);
-                    self.block += 1;
-                }
-            } else if num_blocks == 2 {
-                if self.block == Self::PAR_BLOCKS {
-                    self.rounds();
-                    self.block = 0;
-                }
-                extract_first_block!(_block_ptr, self.results[self.block >> 1]);
-                self.block += 1;
-            }
+        } else if num_blocks == 1 {
+            extract_first_block!(_block_ptr, self.results[0]);
         }
+        self.block_pos = self.block_pos.wrapping_add(num_blocks as u32);
     }
 }
 
@@ -280,9 +227,6 @@ impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
     }
 }
 
-
-
-
 impl<R: Rounds, V: Variant> Backend<R, V> {
     #[inline]
     #[target_feature(enable = "avx2")]
@@ -301,8 +245,6 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
             }
             self.results[i][3] = _mm256_add_epi32(self.results[i][3], self.ctr[i]);
         }
-
-        self.increment_counter(Self::PAR_BLOCKS as i32);
     }
 }
 

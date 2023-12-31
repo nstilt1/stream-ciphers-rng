@@ -414,7 +414,7 @@ macro_rules! impl_chacha_rng {
             #[inline]
             pub fn get_word_pos(&self) -> u64 {
                 let mut result =
-                    u64::from(self.core.backend.get_block_pos()) << 4;
+                    u64::from(self.core.backend.get_block_pos().wrapping_sub(BUF_BLOCKS.into())) << 4;
 
                 result += self.index as u64;
                 // eliminate bits above the 36th bit
@@ -439,7 +439,10 @@ macro_rules! impl_chacha_rng {
                 self.core.backend.set_block_pos(u32::from_le_bytes(word_offset.0[0..4].try_into().unwrap()));
 
                 // generate will increase block_pos by 4
-                self.generate_and_set((word_offset.0[4] & 0x0F) as usize);
+                //let index = word_offset.0[4] & 0x0F;
+                //if index != 0 && self.index != BUFFER_SIZE {
+                    self.generate_and_set((word_offset.0[4] & 0x0F) as usize);
+                //}
             }
 
             /// Set the stream number. The lower 96 bits are used and the rest are
