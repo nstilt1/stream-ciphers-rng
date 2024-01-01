@@ -15,6 +15,9 @@ use cipher::{StreamBackend, StreamClosure,
     ParBlocks, ParBlocksSizeUser, BlockSizeUser
 };
 
+#[cfg(feature = "zeroize")]
+use zeroize::Zeroize;
+
 /// Number of blocks processed in parallel.
 const PAR_BLOCKS: usize = 4;
 /// Number of `__m256i` to store parallel blocks.
@@ -58,6 +61,14 @@ impl<R: Rounds> Backend<R> {
     }
 }
 
+#[cfg(feature = "zeroize")]
+impl<R: Rounds> Zeroize for Backend<R> {
+    fn zeroize(&mut self) {
+        self.v.zeroize();
+        self.ctr.zeroize();
+    }
+}
+
 #[inline]
 #[cfg(feature = "cipher")]
 #[target_feature(enable = "avx2")]
@@ -86,15 +97,16 @@ where
     let num_chunks = num_blocks >> 2;
     let remaining = num_blocks & 0x03;
     
-    for _chunk in 0..num_chunks {
-        backend.write_par_ks_blocks(dest_ptr, 4);
-        dest_ptr = dest_ptr.add(256);
-    }
-    if remaining > 0 {
-        backend.write_par_ks_blocks(dest_ptr, remaining);
-    }
+    let mut buffer: [[__m256i; 4]; N] = [[_mm256_setzero_si256(); 4]; N];
+    backend.write_par_ks_blocks(dest_ptr, num_blocks, &mut buffer);
 
     state[12] = _mm256_extract_epi32(backend.ctr[0], 0) as u32;
+
+    #[cfg(feature = "zeroize")]
+    {
+        backend.zeroize();
+        buffer.zeroize();
+    }
 }
 
 #[cfg(feature = "cipher")]
@@ -112,7 +124,8 @@ impl<R: Rounds> StreamBackend for Backend<R> {
     #[inline(always)]
     fn gen_ks_block(&mut self, dest_ptr: &mut Block) {
         unsafe {
-            self.write_par_ks_blocks(dest_ptr.as_mut_ptr(), 1);
+            let mut buffer: [[__m256i; 4]; N] = [[_mm256_setzero_si256(); 4]; N];
+            self.write_par_ks_blocks(dest_ptr.as_mut_ptr(), 1, &mut buffer);
         }
     }
 
@@ -120,7 +133,8 @@ impl<R: Rounds> StreamBackend for Backend<R> {
     fn gen_par_ks_blocks(&mut self, blocks: &mut ParBlocks<Self>) {
         // SAFETY: `ParBlocks` is a 256-byte 2D array.
         unsafe {
-            self.write_par_ks_blocks(blocks.as_mut_ptr() as *mut u8, 4);
+            let mut buffer: [[__m256i; 4]; N] = [[_mm256_setzero_si256(); 4]; N];
+            self.write_par_ks_blocks(blocks.as_mut_ptr() as *mut u8, 4, &mut buffer);
         }
     }
 }
@@ -154,38 +168,47 @@ impl<R: Rounds> Backend<R> {
     /// # Safety
     /// `dest_ptr` must have at least `num_blocks * 64` bytes available to be overwritten, or else it 
     /// could produce undefined behavior
-    unsafe fn write_par_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
-        assert!(num_blocks <= PAR_BLOCKS, "num_blocks in avx2::write_par_ks_blocks must be <= 4");
-
-        let vs = rounds::<R>(&self.v, &self.ctr);
-        
-        self.increment_counter(num_blocks as i32);
+    unsafe fn write_par_ks_blocks(&mut self, dest_ptr: *mut u8, mut num_blocks: usize, buffer: &mut [[__m256i; 4]; N]) {
+        // assert!(num_blocks <= PAR_BLOCKS, "num_blocks in avx2::write_par_ks_blocks must be <= 4");
 
         let mut _block_ptr = dest_ptr as *mut __m128i;
 
-        // extract up to 4 blocks
-        if num_blocks >= 2 {
-            extract_2_blocks!(_block_ptr, vs[0]);
-            if num_blocks == 4 {
-                extract_2_blocks!(_block_ptr, vs[1]);
-            }else if num_blocks == 3 {
-                extract_1_block!(_block_ptr, vs[1]);
+        while num_blocks > 0 {
+            rounds::<R>(&self.v, &self.ctr, buffer);
+
+            let blocks_written: usize;
+            // extract up to 4 blocks
+            if num_blocks >= 2 {
+                extract_2_blocks!(_block_ptr, buffer[0]);
+                if num_blocks >= 4 {
+                    extract_2_blocks!(_block_ptr, buffer[1]);
+                    blocks_written = 4;
+                } else if num_blocks == 3 {
+                    extract_1_block!(_block_ptr, buffer[1]);
+                    blocks_written = 3;
+                } else {
+                    blocks_written = 2;
+                }
+            } else if num_blocks == 1 {
+                extract_1_block!(_block_ptr, buffer[0]);
+                blocks_written = 1;
+            } else {
+                return
             }
-        }else if num_blocks == 1 {
-            extract_1_block!(_block_ptr, vs[0]);
+            num_blocks -= blocks_written;
+            self.increment_counter(blocks_written as i32)
         }
     }
 }
 
 #[inline]
 #[target_feature(enable = "avx2")]
-unsafe fn rounds<R: Rounds>(v: &[__m256i; 3], c: &[__m256i; N]) -> [[__m256i; 4]; N] {
-    let mut vs: [[__m256i; 4]; N] = [[_mm256_setzero_si256(); 4]; N];
+unsafe fn rounds<R: Rounds>(v: &[__m256i; 3], c: &[__m256i; N], vs: &mut [[__m256i; 4]; N]) {
     for i in 0..N {
         vs[i] = [v[0], v[1], v[2], c[i]];
     }
     for _ in 0..R::COUNT {
-        double_quarter_round(&mut vs);
+        double_quarter_round(vs);
     }
 
     for i in 0..N {
@@ -194,8 +217,6 @@ unsafe fn rounds<R: Rounds>(v: &[__m256i; 3], c: &[__m256i; N]) -> [[__m256i; 4]
         }
         vs[i][3] = _mm256_add_epi32(vs[i][3], c[i]);
     }
-
-    vs
 }
 
 #[inline]
