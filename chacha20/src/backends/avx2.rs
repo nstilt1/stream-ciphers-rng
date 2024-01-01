@@ -15,6 +15,9 @@ use cipher::{StreamBackend, StreamClosure,
     ParBlocks, ParBlocksSizeUser, BlockSizeUser
 };
 
+#[cfg(feature = "zeroize")]
+use zeroize::Zeroize;
+
 /// Number of blocks processed in parallel.
 const PAR_BLOCKS: usize = 4;
 /// Number of `__m256i` to store parallel blocks.
@@ -70,7 +73,7 @@ where
 
     f.call(&mut backend);
 
-    state[12] = _mm256_extract_epi32(backend.ctr[0], 0) as u32;
+    state[12] = _mm256_extract_epi32::<0>(backend.ctr[0]) as u32;
 }
 
 #[inline]
@@ -83,17 +86,11 @@ where
 {
     let mut backend = Backend::<R>::new(state);
 
-    let num_chunks = num_blocks >> 2;
-    let remaining = num_blocks & 0x03;
+    //let num_chunks = num_blocks >> 2;
+    //let remaining = num_blocks & 0x03;
     
-    for _chunk in 0..num_chunks {
-        backend.write_par_ks_blocks(dest_ptr, 4);
-        dest_ptr = dest_ptr.add(256);
-    }
-    if remaining > 0 {
-        backend.write_par_ks_blocks(dest_ptr, remaining);
-    }
-
+    backend.write_par_ks_blocks(dest_ptr, num_blocks);
+    
     state[12] = _mm256_extract_epi32(backend.ctr[0], 0) as u32;
 }
 
@@ -132,6 +129,7 @@ macro_rules! extract_1_block {
         for i in 0..4 {
             _mm_storeu_si128($block_ptr.add(i), t[i << 1]);
         }
+        $block_ptr = $block_ptr.add(4)
     };
 }
 
@@ -154,38 +152,54 @@ impl<R: Rounds> Backend<R> {
     /// # Safety
     /// `dest_ptr` must have at least `num_blocks * 64` bytes available to be overwritten, or else it 
     /// could produce undefined behavior
-    unsafe fn write_par_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
-        assert!(num_blocks <= PAR_BLOCKS, "num_blocks in avx2::write_par_ks_blocks must be <= 4");
+    unsafe fn write_par_ks_blocks(&mut self, dest_ptr: *mut u8, mut num_blocks: usize) {
+        //assert!(num_blocks <= PAR_BLOCKS, "num_blocks in avx2::write_par_ks_blocks must be <= 4");
 
-        let vs = rounds::<R>(&self.v, &self.ctr);
         
-        self.increment_counter(num_blocks as i32);
-
+        let mut vs: [[__m256i; 4]; N] = [[_mm256_setzero_si256(); 4]; N]; 
         let mut _block_ptr = dest_ptr as *mut __m128i;
+        
+        while num_blocks > 0 {
+            rounds::<R>(&self.v, &self.ctr, &mut vs);
 
-        // extract up to 4 blocks
-        if num_blocks >= 2 {
-            extract_2_blocks!(_block_ptr, vs[0]);
-            if num_blocks == 4 {
-                extract_2_blocks!(_block_ptr, vs[1]);
-            }else if num_blocks == 3 {
-                extract_1_block!(_block_ptr, vs[1]);
+
+            // extract up to 4 blocks
+            if num_blocks >= 2 {
+                extract_2_blocks!(_block_ptr, vs[0]);
+                if num_blocks >= 4 {
+                    extract_2_blocks!(_block_ptr, vs[1]);
+                    num_blocks = num_blocks - 4;
+                    self.increment_counter(4);
+                } else if num_blocks == 3 {
+                    extract_1_block!(_block_ptr, vs[1]);
+                    num_blocks = num_blocks - 3;
+                    self.increment_counter(3);
+                } else {
+                    num_blocks = num_blocks - 2;
+                    self.increment_counter(2);
+                }
+            } else if num_blocks == 1 {
+                extract_1_block!(_block_ptr, vs[0]);
+                num_blocks = num_blocks - 1;
+                self.increment_counter(1);
             }
-        }else if num_blocks == 1 {
-            extract_1_block!(_block_ptr, vs[0]);
+        }
+
+        #[cfg(feature = "zeroize")]
+        {
+            vs.zeroize();
         }
     }
 }
 
 #[inline]
 #[target_feature(enable = "avx2")]
-unsafe fn rounds<R: Rounds>(v: &[__m256i; 3], c: &[__m256i; N]) -> [[__m256i; 4]; N] {
-    let mut vs: [[__m256i; 4]; N] = [[_mm256_setzero_si256(); 4]; N];
+unsafe fn rounds<R: Rounds>(v: &[__m256i; 3], c: &[__m256i; N], vs: &mut [[__m256i; 4]; N]) {
     for i in 0..N {
         vs[i] = [v[0], v[1], v[2], c[i]];
     }
     for _ in 0..R::COUNT {
-        double_quarter_round(&mut vs);
+        double_quarter_round(vs);
     }
 
     for i in 0..N {
@@ -194,8 +208,6 @@ unsafe fn rounds<R: Rounds>(v: &[__m256i; 3], c: &[__m256i; N]) -> [[__m256i; 4]
         }
         vs[i][3] = _mm256_add_epi32(vs[i][3], c[i]);
     }
-
-    vs
 }
 
 #[inline]
@@ -247,9 +259,9 @@ unsafe fn double_quarter_round(v: &mut [[__m256i; 4]; N]) {
 unsafe fn rows_to_cols(vs: &mut [[__m256i; 4]; N]) {
     // c >>>= 32; d >>>= 64; a >>>= 96;
     for [a, _, c, d] in vs {
-        *c = _mm256_shuffle_epi32(*c, 0b_00_11_10_01); // _MM_SHUFFLE(0, 3, 2, 1)
-        *d = _mm256_shuffle_epi32(*d, 0b_01_00_11_10); // _MM_SHUFFLE(1, 0, 3, 2)
-        *a = _mm256_shuffle_epi32(*a, 0b_10_01_00_11); // _MM_SHUFFLE(2, 1, 0, 3)
+        *c = _mm256_shuffle_epi32::<0b_00_11_10_01>(*c); // _MM_SHUFFLE(0, 3, 2, 1)
+        *d = _mm256_shuffle_epi32::<0b_01_00_11_10>(*d); // _MM_SHUFFLE(1, 0, 3, 2)
+        *a = _mm256_shuffle_epi32::<0b_10_01_00_11>(*a); // _MM_SHUFFLE(2, 1, 0, 3)
     }
 }
 
@@ -275,9 +287,9 @@ unsafe fn rows_to_cols(vs: &mut [[__m256i; 4]; N]) {
 unsafe fn cols_to_rows(vs: &mut [[__m256i; 4]; N]) {
     // c <<<= 32; d <<<= 64; a <<<= 96;
     for [a, _, c, d] in vs {
-        *c = _mm256_shuffle_epi32(*c, 0b_10_01_00_11); // _MM_SHUFFLE(2, 1, 0, 3)
-        *d = _mm256_shuffle_epi32(*d, 0b_01_00_11_10); // _MM_SHUFFLE(1, 0, 3, 2)
-        *a = _mm256_shuffle_epi32(*a, 0b_00_11_10_01); // _MM_SHUFFLE(0, 3, 2, 1)
+        *c = _mm256_shuffle_epi32::<0b_10_01_00_11>(*c); // _MM_SHUFFLE(2, 1, 0, 3)
+        *d = _mm256_shuffle_epi32::<0b_01_00_11_10>(*d); // _MM_SHUFFLE(1, 0, 3, 2)
+        *a = _mm256_shuffle_epi32::<0b_00_11_10_01>(*a); // _MM_SHUFFLE(0, 3, 2, 1)
     }
 }
 
@@ -308,7 +320,7 @@ unsafe fn add_xor_rot(vs: &mut [[__m256i; 4]; N]) {
     for [_, b, c, d] in vs.iter_mut() {
         *c = _mm256_add_epi32(*c, *d);
         *b = _mm256_xor_si256(*b, *c);
-        *b = _mm256_xor_si256(_mm256_slli_epi32(*b, 12), _mm256_srli_epi32(*b, 20));
+        *b = _mm256_xor_si256(_mm256_slli_epi32::<12>(*b), _mm256_srli_epi32::<20>(*b));
     }
 
     // a += b; d ^= a; d <<<= (8, 8, 8, 8);
@@ -322,6 +334,6 @@ unsafe fn add_xor_rot(vs: &mut [[__m256i; 4]; N]) {
     for [_, b, c, d] in vs.iter_mut() {
         *c = _mm256_add_epi32(*c, *d);
         *b = _mm256_xor_si256(*b, *c);
-        *b = _mm256_xor_si256(_mm256_slli_epi32(*b, 7), _mm256_srli_epi32(*b, 25));
+        *b = _mm256_xor_si256(_mm256_slli_epi32::<7>(*b), _mm256_srli_epi32::<25>(*b));
     }
 }
