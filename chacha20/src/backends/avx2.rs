@@ -188,35 +188,61 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
         result
     }
     
+    #[inline(always)]
     /// Generates `num_blocks` blocks and blindly writes them to `dest_ptr` recursively
     /// 
     /// # Safety
     /// `dest_ptr` must have at least `num_blocks * 64` bytes available to be overwritten, or else it 
     /// could produce undefined behavior
-    unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
-        if self.block == Self::PAR_BLOCKS {
-            self.rounds();
-            self.block = 0;
-        }
-
+    unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, mut num_blocks: usize) {
         let mut _block_ptr = dest_ptr as *mut __m128i;
+        
+        while num_blocks > 0 {
+            if self.block == Self::PAR_BLOCKS {
+                self.rounds();
+                self.block = 0;
+            }
 
-        // if (self.block % 2 == 0) to check if either `extract_2_blocks` or `extract_first_block` can be used
-        if self.block & 0b01 == 0 {
-            if num_blocks >= 2 {
-                extract_2_blocks!(_block_ptr, self.results[self.block >> 1]);
-                self.block += 2;
-                self.write_ks_blocks(_block_ptr as *mut u8, num_blocks - 2);
-            } else if num_blocks == 1 {
-                extract_1_block!(_block_ptr, self.results[self.block >> 1], 0);
+            // if (self.block % 2 == 0) to check if either `extract_2_blocks` or `extract_first_block` can be used
+            if self.block == 0 {
+                if num_blocks >= 2 {
+                    extract_2_blocks!(_block_ptr, self.results[0]);
+                    if num_blocks >= 4 {
+                        extract_2_blocks!(_block_ptr, self.results[1]);
+                        num_blocks -= 4;
+                        self.block = 4;
+                    } else if num_blocks == 3 {
+                        extract_1_block!(_block_ptr, self.results[1], 0);
+                        self.block = 3;
+                        num_blocks -= 3;
+                    } else {
+                        self.block = 2;
+                        num_blocks -= 2;
+                    }
+                    //self.write_ks_blocks(_block_ptr as *mut u8, num_blocks - 2);
+                } else if num_blocks == 1 {
+                    extract_1_block!(_block_ptr, self.results[self.block >> 1], 0);
+                    self.block += 1;
+                    num_blocks -= 1;
+                } // else: num_blocks == 0, recursion ends
+            } else if self.block == 2 {
+                if num_blocks >= 2 {
+                    extract_2_blocks!(_block_ptr, self.results[1]);
+                    self.block = 4;
+                    num_blocks -= 2;
+                } else if num_blocks == 1 {
+                    extract_1_block!(_block_ptr, self.results[1], 0);
+                    self.block = 3;
+                    num_blocks -= 1;
+                }
+            } else if num_blocks > 0 {
+                // self.block is either 1 or 3
+                extract_1_block!(_block_ptr, self.results[self.block >> 1], 1);
                 self.block += 1;
+                num_blocks -= 1;
+                //self.write_ks_blocks(_block_ptr as *mut u8, num_blocks - 1);
             } // else: num_blocks == 0, recursion ends
-        } else if num_blocks > 0 {
-            // self.block is either 1 or 3
-            extract_1_block!(_block_ptr, self.results[self.block >> 1], 1);
-            self.block += 1;
-            self.write_ks_blocks(_block_ptr as *mut u8, num_blocks - 1);
-        } // else: num_blocks == 0, recursion ends
+        }
     }
 }
 

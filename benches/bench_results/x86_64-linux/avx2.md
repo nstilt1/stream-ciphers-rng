@@ -8,106 +8,106 @@ This commit: 97cdfc5
      Running src/chacha20.rs (target/release/deps/chacha20-6f837c27da8cfee7)
 Gnuplot not found, using plotters backend
 stream-cipher/apply_keystream/1024
-                        time:   [957.8124 cycles 958.2293 cycles 958.7342 cycles]
-                        thrpt:  [0.9363 cpb 0.9358 cpb 0.9354 cpb]
+                        time:   [1029.9477 cycles 1033.5128 cycles 1037.3747 cycles]
+                        thrpt:  [1.0131 cpb 1.0093 cpb 1.0058 cpb]
                  change:
-                        time:   [-4.6878% -4.1909% -3.7345%] (p = 0.00 < 0.05)
-                        thrpt:  [+3.8794% +4.3742% +4.9184%]
-                        Performance has improved.
-Found 9 outliers among 100 measurements (9.00%)
-  2 (2.00%) low mild
-  4 (4.00%) high mild
-  3 (3.00%) high severe
-stream-cipher/apply_keystream/2048
-                        time:   [1906.6587 cycles 1908.6083 cycles 1911.3419 cycles]
-                        thrpt:  [0.9333 cpb 0.9319 cpb 0.9310 cpb]
-                 change:
-                        time:   [-2.3585% -1.9491% -1.5503%] (p = 0.00 < 0.05)
-                        thrpt:  [+1.5747% +1.9879% +2.4155%]
-                        Performance has improved.
-Found 6 outliers among 100 measurements (6.00%)
-  4 (4.00%) high mild
-  2 (2.00%) high severe
-stream-cipher/apply_keystream/4096
-                        time:   [3806.3942 cycles 3811.2544 cycles 3817.6644 cycles]
-                        thrpt:  [0.9320 cpb 0.9305 cpb 0.9293 cpb]
-                 change:
-                        time:   [-2.3627% -1.8225% -1.3634%] (p = 0.00 < 0.05)
-                        thrpt:  [+1.3823% +1.8563% +2.4199%]
-                        Performance has improved.
-Found 10 outliers among 100 measurements (10.00%)
-  1 (1.00%) low mild
-  2 (2.00%) high mild
-  7 (7.00%) high severe
-stream-cipher/apply_keystream/8192
-                        time:   [7733.4907 cycles 7775.6224 cycles 7822.7032 cycles]
-                        thrpt:  [0.9549 cpb 0.9492 cpb 0.9440 cpb]
-                 change:
-                        time:   [-2.2783% -0.4983% +0.9400%] (p = 0.58 > 0.05)
-                        thrpt:  [-0.9312% +0.5008% +2.3314%]
-                        No change in performance detected.
-Found 7 outliers among 100 measurements (7.00%)
-  6 (6.00%) high mild
-  1 (1.00%) high severe
-stream-cipher/apply_keystream/16384
-                        time:   [15501.0803 cycles 15610.5622 cycles 15740.7526 cycles]
-                        thrpt:  [0.9607 cpb 0.9528 cpb 0.9461 cpb]
-                 change:
-                        time:   [+0.4677% +1.2511% +2.2194%] (p = 0.00 < 0.05)
-                        thrpt:  [-2.1712% -1.2356% -0.4655%]
+                        time:   [-2.1626% -1.2213% -0.4057%] (p = 0.01 < 0.05)
+                        thrpt:  [+0.4073% +1.2364% +2.2104%]
                         Change within noise threshold.
-Found 9 outliers among 100 measurements (9.00%)
+Found 3 outliers among 100 measurements (3.00%)
+  2 (2.00%) high mild
+  1 (1.00%) high severe
+stream-cipher/apply_keystream/2048
+                        time:   [2039.9442 cycles 2053.1398 cycles 2067.3905 cycles]
+                        thrpt:  [1.0095 cpb 1.0025 cpb 0.9961 cpb]
+                 change:
+                        time:   [-1.8734% -0.9273% -0.1145%] (p = 0.04 < 0.05)
+                        thrpt:  [+0.1147% +0.9360% +1.9092%]
+                        Change within noise threshold.
+Found 10 outliers among 100 measurements (10.00%)
   4 (4.00%) high mild
-  5 (5.00%) high severe
+  6 (6.00%) high severe
+stream-cipher/apply_keystream/4096
+                        time:   [4052.7380 cycles 4062.3360 cycles 4072.5014 cycles]
+                        thrpt:  [0.9943 cpb 0.9918 cpb 0.9894 cpb]
+                 change:
+                        time:   [-1.9957% -1.4771% -1.0037%] (p = 0.00 < 0.05)
+                        thrpt:  [+1.0139% +1.4993% +2.0364%]
+                        Performance has improved.
+Found 4 outliers among 100 measurements (4.00%)
+  2 (2.00%) high mild
+  2 (2.00%) high severe
+stream-cipher/apply_keystream/8192
+                        time:   [8099.0261 cycles 8123.3995 cycles 8152.1496 cycles]
+                        thrpt:  [0.9951 cpb 0.9916 cpb 0.9887 cpb]
+                 change:
+                        time:   [-0.9322% -0.2573% +0.4899%] (p = 0.50 > 0.05)
+                        thrpt:  [-0.4875% +0.2579% +0.9410%]
+                        No change in performance detected.
+Found 10 outliers among 100 measurements (10.00%)
+  4 (4.00%) high mild
+  6 (6.00%) high severe
+stream-cipher/apply_keystream/16384
+                        time:   [16163.9533 cycles 16221.4655 cycles 16290.3286 cycles]
+                        thrpt:  [0.9943 cpb 0.9901 cpb 0.9866 cpb]
+                 change:
+                        time:   [-0.5321% -0.0704% +0.3570%] (p = 0.76 > 0.05)
+                        thrpt:  [-0.3557% +0.0704% +0.5349%]
+                        No change in performance detected.
+Found 13 outliers among 100 measurements (13.00%)
+  6 (6.00%) high mild
+  7 (7.00%) high severe
 ```
 ## ChaCha20Rng::fill_bytes()
 ```
 ChaCha20Rng/fill_bytes/1024
-                        time:   [961.9632 cycles 967.4754 cycles 973.6152 cycles]
-                        thrpt:  [0.9508 cpb 0.9448 cpb 0.9394 cpb]
+                        time:   [950.1280 cycles 954.8761 cycles 960.9864 cycles]
+                        thrpt:  [0.9385 cpb 0.9325 cpb 0.9279 cpb]
                  change:
-                        time:   [-2.6722% -1.8412% -0.9991%] (p = 0.00 < 0.05)
-                        thrpt:  [+1.0092% +1.8757% +2.7456%]
+                        time:   [-2.0516% -1.4293% -0.7375%] (p = 0.00 < 0.05)
+                        thrpt:  [+0.7429% +1.4500% +2.0946%]
                         Change within noise threshold.
+Found 4 outliers among 100 measurements (4.00%)
+  1 (1.00%) high mild
+  3 (3.00%) high severe
+ChaCha20Rng/fill_bytes/2048
+                        time:   [1893.2543 cycles 1901.5493 cycles 1911.9818 cycles]
+                        thrpt:  [0.9336 cpb 0.9285 cpb 0.9244 cpb]
+                 change:
+                        time:   [-0.7933% -0.1917% +0.4488%] (p = 0.55 > 0.05)
+                        thrpt:  [-0.4468% +0.1920% +0.7996%]
+                        No change in performance detected.
 Found 8 outliers among 100 measurements (8.00%)
   5 (5.00%) high mild
   3 (3.00%) high severe
-ChaCha20Rng/fill_bytes/2048
-                        time:   [1906.7578 cycles 1913.2175 cycles 1919.6353 cycles]
-                        thrpt:  [0.9373 cpb 0.9342 cpb 0.9310 cpb]
-                 change:
-                        time:   [-2.1818% -1.7631% -1.3289%] (p = 0.00 < 0.05)
-                        thrpt:  [+1.3468% +1.7948% +2.2305%]
-                        Performance has improved.
-Found 3 outliers among 100 measurements (3.00%)
-  3 (3.00%) high mild
 ChaCha20Rng/fill_bytes/4096
-                        time:   [3842.0112 cycles 3858.6417 cycles 3876.6690 cycles]
-                        thrpt:  [0.9465 cpb 0.9421 cpb 0.9380 cpb]
+                        time:   [3781.5977 cycles 3801.4851 cycles 3824.5162 cycles]
+                        thrpt:  [0.9337 cpb 0.9281 cpb 0.9232 cpb]
                  change:
-                        time:   [-1.0650% -0.5005% +0.0644%] (p = 0.08 > 0.05)
-                        thrpt:  [-0.0643% +0.5031% +1.0765%]
-                        No change in performance detected.
-Found 6 outliers among 100 measurements (6.00%)
-  6 (6.00%) high mild
-ChaCha20Rng/fill_bytes/8192
-                        time:   [7641.3253 cycles 7675.0733 cycles 7715.0001 cycles]
-                        thrpt:  [0.9418 cpb 0.9369 cpb 0.9328 cpb]
-                 change:
-                        time:   [-1.4356% -0.6958% +0.0424%] (p = 0.07 > 0.05)
-                        thrpt:  [-0.0424% +0.7007% +1.4565%]
-                        No change in performance detected.
-Found 9 outliers among 100 measurements (9.00%)
-  4 (4.00%) high mild
-  5 (5.00%) high severe
-ChaCha20Rng/fill_bytes/16384
-                        time:   [15258.6043 cycles 15346.1307 cycles 15454.1358 cycles]
-                        thrpt:  [0.9432 cpb 0.9367 cpb 0.9313 cpb]
-                 change:
-                        time:   [-1.8515% -1.0812% -0.3516%] (p = 0.01 < 0.05)
-                        thrpt:  [+0.3529% +1.0931% +1.8864%]
+                        time:   [-1.4956% -0.8224% -0.1254%] (p = 0.02 < 0.05)
+                        thrpt:  [+0.1255% +0.8292% +1.5183%]
                         Change within noise threshold.
-Found 11 outliers among 100 measurements (11.00%)
-  6 (6.00%) high mild
-  5 (5.00%) high severe
+Found 10 outliers among 100 measurements (10.00%)
+  4 (4.00%) high mild
+  6 (6.00%) high severe
+ChaCha20Rng/fill_bytes/8192
+                        time:   [7530.0898 cycles 7555.0686 cycles 7586.7694 cycles]
+                        thrpt:  [0.9261 cpb 0.9222 cpb 0.9192 cpb]
+                 change:
+                        time:   [-2.8542% -2.1555% -1.5177%] (p = 0.00 < 0.05)
+                        thrpt:  [+1.5411% +2.2030% +2.9380%]
+                        Performance has improved.
+Found 10 outliers among 100 measurements (10.00%)
+  3 (3.00%) high mild
+  7 (7.00%) high severe
+ChaCha20Rng/fill_bytes/16384
+                        time:   [15194.5407 cycles 15267.6254 cycles 15349.2592 cycles]
+                        thrpt:  [0.9368 cpb 0.9319 cpb 0.9274 cpb]
+                 change:
+                        time:   [-1.9886% -1.0572% -0.2646%] (p = 0.02 < 0.05)
+                        thrpt:  [+0.2653% +1.0685% +2.0289%]
+                        Change within noise threshold.
+Found 7 outliers among 100 measurements (7.00%)
+  3 (3.00%) high mild
+  4 (4.00%) high severe
 ```
