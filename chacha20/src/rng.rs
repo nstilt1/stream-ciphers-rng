@@ -414,9 +414,9 @@ macro_rules! impl_chacha_rng {
             #[inline]
             pub fn get_word_pos(&self) -> u64 {
                 let mut result =
-                    u64::from(self.core.backend.get_block_pos().wrapping_sub(BUF_BLOCKS.into())) << 4;
+                    u64::from(self.core.backend.get_block_pos()) << 4;
 
-                result += self.index as u64;
+                result += (self.index & 0x0F) as u64;
                 // eliminate bits above the 36th bit
                 result & 0xfffffffff
             }

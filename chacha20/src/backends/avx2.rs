@@ -94,11 +94,11 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
                 _mm256_broadcastsi128_si256(_mm_loadu_si128(state_ptr.add(2))),
             ];
             let mut c = _mm256_broadcastsi128_si256(_mm_loadu_si128(state_ptr.add(3)));
-            c = _mm256_add_epi32(c, _mm256_set_epi32(0, 0, 0, 1, 0, 0, 0, 0));
+            c = _mm256_add_epi32(c, _mm256_setr_epi32(0, 0, 0, 0, 1, 0, 0, 0));
             let mut ctr = [c; N];
             for i in 0..N {
                 ctr[i] = c;
-                c = _mm256_add_epi32(c, _mm256_set_epi32(0, 0, 0, 2, 0, 0, 0, 2));
+                c = _mm256_add_epi32(c, _mm256_setr_epi32(2, 0, 0, 0, 2, 0, 0, 0));
             }
             Backend::<R, V> {
                 v,
@@ -116,35 +116,36 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     fn increment_counter(&mut self, amount: i32) {
         unsafe {
             for c in self.ctr.iter_mut() {
-                *c = _mm256_add_epi32(*c, _mm256_set_epi32(0, 0, 0, amount, 0, 0, 0, amount));
+                *c = _mm256_add_epi32(*c, _mm256_setr_epi32(amount, 0, 0, 0, amount, 0, 0, 0));
             }
         }
     }
 
+    /// Returns the exact block pos
     fn get_block_pos(&self) -> u32 {
         unsafe { 
             (_mm256_extract_epi32::<0>(self.ctr[0]) as u32)
-                .wrapping_add(self.block as u32 & 0b11)
+                .wrapping_add(self.block as u32 % 4)
         }
     }
 
-    fn set_block_pos(&mut self, amount: u32) {
+    fn set_block_pos(&mut self, pos: u32) {
         unsafe {
             // apply a mask to the counters to set them to 0
-            let mask = _mm256_set_epi32(0, 0, 0, I32_ONES, 0, 0, 0, I32_ONES);
+            let mask = _mm256_setr_epi32(I32_ONES, 0, 0, 0, I32_ONES, 0, 0, 0);
             
             for i in 0..N {
                 self.ctr[i] = _mm256_andnot_si256(mask, self.ctr[i]);
                 self.ctr[i] = _mm256_add_epi32(
                     self.ctr[i], 
-                    _mm256_setr_epi32(amount as i32, 0, 0, 0, amount as i32, 0, 0, 0)
+                    _mm256_setr_epi32(pos as i32, 0, 0, 0, pos as i32, 0, 0, 0)
                 );
                 
                 // increasing the counter in separate operations to avoid an i32 overflow before the  
-                // `amount + i*2` takes place
+                // `pos + i*2` takes place
                 self.ctr[i] = _mm256_add_epi32(
                     self.ctr[i], 
-                    _mm256_setr_epi32(i as i32 * 2, 0, 0, 0, i as i32 * 2 + 1, 0, 0, 0)
+                    _mm256_setr_epi32((i * 2) as i32, 0, 0, 0, (i * 2 + 1) as i32, 0, 0, 0)
                 );
             }
             self.block = 4;
