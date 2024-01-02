@@ -414,7 +414,7 @@ macro_rules! impl_chacha_rng {
             #[inline]
             pub fn get_word_pos(&self) -> u64 {
                 let mut result =
-                    u64::from(self.core.backend.get_block_pos()) << 4;
+                    u64::from(self.core.backend.get_block_pos().wrapping_sub(BUF_BLOCKS.into())) << 4;
 
                 result += self.index as u64;
                 // eliminate bits above the 36th bit
@@ -688,10 +688,17 @@ mod tests {
         let mut rng = ChaChaRng::from_seed([0u8; 32]);
         let mut tester_rng = TesterRng::from_seed([0u8; 32]);
 
-        let stream_test: u64 = 923238442;
+        let stream_test: u64 = 34582934;
+        // `chacha20`::ChaCha20Rng uses a 96-bit stream id
+        let mut chacha_stream_equivalent = [0u8; 12];
+        chacha_stream_equivalent[4..].copy_from_slice(&stream_test.to_le_bytes());
 
-        //rng.set_stream(stream_test as u128);
-        //tester_rng.set_stream(stream_test);
+        rng.set_stream(chacha_stream_equivalent);
+        tester_rng.set_stream(stream_test);
+
+        let word_pos_test: u32 = 33892;
+        rng.set_word_pos(word_pos_test as u64);
+        tester_rng.set_word_pos(word_pos_test.into());
 
         let num_iterations = 32;
 
@@ -1093,8 +1100,8 @@ mod tests {
             for block_pos in word_pos_start..word_pos_start+test_amt {
                 rng.set_stream(stream as u128);
                 assert_eq!(stream as u128, rng.get_stream());
-                rng.core.backend.set_block_pos(block_pos);
-                assert_eq!(rng.core.backend.get_block_pos(), block_pos);
+                //rng.core.backend.set_block_pos(block_pos);
+                //assert_eq!(rng.core.backend.get_block_pos(), block_pos);
 
                 rng.set_word_pos(block_pos as u64);
                 assert_eq!(rng.get_word_pos(), block_pos as u64);

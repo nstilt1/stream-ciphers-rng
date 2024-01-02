@@ -70,17 +70,9 @@ pub(crate) trait BackendType {
     /// # Safety
     /// `dest_ptr` must have at least `num_blocks * 4` bytes available to be 
     /// overwritten, or else it could produce undefined behavior
-    fn rng_inner(&mut self, mut dest_ptr: *mut u8, num_blocks: usize) {
-        let num_chunks = num_blocks / Self::PAR_BLOCKS;
-        let remaining = num_blocks % Self::PAR_BLOCKS;
+    fn rng_inner(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
         unsafe {
-            for _chunk in 0..num_chunks {
-                self.write_ks_blocks(dest_ptr, Self::PAR_BLOCKS);
-                dest_ptr = dest_ptr.add(Self::PAR_BLOCKS * 64);
-            }
-            if remaining > 0 {
-                self.write_ks_blocks(dest_ptr, remaining);
-            }
+            self.write_ks_blocks(dest_ptr, num_blocks);
         }
     }
 }
