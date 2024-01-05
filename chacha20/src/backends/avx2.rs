@@ -25,6 +25,9 @@ use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 
+#[cfg(feature = "zeroize")]
+use zeroize::Zeroize;
+
 /// Number of blocks processed in parallel.
 const PAR_BLOCKS: usize = 4;
 /// Number of `__m256i` to store parallel blocks.
@@ -92,6 +95,12 @@ where
     backend.rng_gen_par_ks_blocks(buffer);
 
     core.state[12] = _mm256_extract_epi32(backend.ctr[0], 0) as u32;
+
+    #[cfg(feature = "zeroize")]
+    {
+        backend.v.zeroize();
+        backend.ctr.zeroize();
+    }
 }
 
 struct Backend<R: Rounds> {
@@ -157,6 +166,9 @@ impl<R: Rounds> Backend<R> {
     #[inline(always)]
     fn rng_gen_par_ks_blocks(&mut self, blocks: &mut [u32; 64]) {
         unsafe {
+            #[cfg(feature = "zeroize")]
+            let mut vs = rounds::<R>(&self.v, &self.ctr);
+            #[cfg(not(feature = "zeroize"))]
             let vs = rounds::<R>(&self.v, &self.ctr);
 
             let pb = PAR_BLOCKS as i32;
@@ -172,6 +184,11 @@ impl<R: Rounds> Backend<R> {
                     _mm_storeu_si128(block_ptr.add(4 + i), t[2 * i + 1]);
                 }
                 block_ptr = block_ptr.add(8);
+            }
+
+            #[cfg(feature = "zeroize")]
+            {
+                vs.zeroize();
             }
         }
     }

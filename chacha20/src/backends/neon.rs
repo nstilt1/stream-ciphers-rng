@@ -18,6 +18,9 @@ use cipher::{
     BlockSizeUser, ParBlocks, ParBlocksSizeUser, StreamBackend, StreamClosure,
 };
 
+#[cfg(feature = "zeroize")]
+use zeroize::Zeroize;
+
 struct Backend<R: Rounds> {
     state: [uint32x4_t; 4],
     ctrs: [uint32x4_t; 4],
@@ -77,6 +80,11 @@ where
     backend.write_par_ks_blocks(buffer);
 
     vst1q_u32(core.state.as_mut_ptr().offset(12), backend.state[3]);
+
+    #[cfg(feature = "zeroize")]
+    for vec in backend.state.iter_mut() {
+        vec.zeroize();
+    }
 }
 
 #[cfg(feature = "cipher")]
@@ -163,6 +171,13 @@ impl<R: Rounds> StreamBackend for Backend<R> {
                 }
             }
             self.state[3] = add64!(self.state[3], self.ctrs[3]);
+
+            #[cfg(feature = "zeroize")]
+            for b in 0..4 {
+                for r in 0..4 {
+                    blocks[b][r].zeroize();
+                }
+            }
         }
     }
 }

@@ -20,6 +20,9 @@ use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 
+#[cfg(feature = "zeroize")]
+use zeroize::Zeroize;
+
 #[inline]
 #[target_feature(enable = "sse2")]
 #[cfg(feature = "cipher")]
@@ -99,6 +102,9 @@ where
     }
 
     core.state[12] = _mm_cvtsi128_si32(backend.v[3]) as u32;
+
+    #[cfg(feature = "zeroize")]
+    backend.v.zeroize();
 }
 
 #[cfg(feature = "rng")]
@@ -106,12 +112,20 @@ impl<R: Rounds> Backend<R> {
     #[inline(always)]
     fn gen_ks_block(&mut self, block: &mut [u32]) {
         unsafe {
+            #[cfg(feature = "zeroize")]
+            let mut res = rounds::<R>(&self.v);
+            #[cfg(not(feature = "zeroize"))]
             let res = rounds::<R>(&self.v);
             self.v[3] = _mm_add_epi32(self.v[3], _mm_set_epi32(0, 0, 0, 1));
 
             let block_ptr = block.as_mut_ptr() as *mut __m128i;
             for i in 0..4 {
                 _mm_storeu_si128(block_ptr.add(i), res[i]);
+            }
+
+            #[cfg(feature = "zeroize")]
+            {
+                res.zeroize();
             }
         }
     }
