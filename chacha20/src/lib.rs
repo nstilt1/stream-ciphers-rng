@@ -128,7 +128,7 @@ pub(crate) mod backends;
 mod chacha;
 #[cfg(feature = "legacy")]
 mod legacy;
-#[cfg(feature = "rand_core")]
+#[cfg(feature = "rng")]
 mod rng;
 #[cfg(feature = "xchacha")]
 mod xchacha;
@@ -138,9 +138,9 @@ use variants::Variant;
 
 #[cfg(feature = "cipher")]
 pub use chacha::{ChaCha12, ChaCha20, ChaCha8, Key, KeyIvInit};
-#[cfg(feature = "rand_core")]
+#[cfg(feature = "rng")]
 pub use rand_core;
-#[cfg(feature = "rand_core")]
+#[cfg(feature = "rng")]
 pub use rng::{ChaCha12Core, ChaCha12Rng, ChaCha20Core, ChaCha20Rng, ChaCha8Core, ChaCha8Rng};
 
 #[cfg(feature = "legacy")]
@@ -211,7 +211,7 @@ cfg_if! {
 }
 
 /// The ChaCha core function.
-#[cfg_attr(feature = "rand_core", derive(Clone))]
+#[cfg_attr(feature = "rng", derive(Clone))]
 pub struct ChaChaCore<R: Rounds, V: Variant> {
     /// Internal state of the core function
     state: [u32; STATE_WORDS],

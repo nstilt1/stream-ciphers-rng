@@ -15,6 +15,9 @@ use cipher::{
     BlockSizeUser, ParBlocks, ParBlocksSizeUser, StreamBackend, StreamClosure,
 };
 
+#[cfg(feature = "rng")]
+use crate::Variant;
+
 struct Backend<R: Rounds> {
     state: [uint32x4_t; 4],
     ctrs: [uint32x4_t; 4],
@@ -60,7 +63,7 @@ where
 }
 
 #[inline]
-#[cfg(feature = "rand_core")]
+#[cfg(feature = "rng")]
 #[target_feature(enable = "neon")]
 /// Sets up backend and blindly writes 4 blocks to dest_ptr.
 pub(crate) unsafe fn rng_inner<R, V>(
@@ -156,7 +159,8 @@ impl<R: Rounds> Backend<R> {
     ///
     /// # Safety
     /// `dest_ptr` must have at least `64 * num_blocks` bytes available to be
-    /// overwritten, or else it could produce undefined behavior
+    /// overwritten, or else it could cause a segmentation fault, or undesired 
+    /// behavior.
     unsafe fn write_par_ks_blocks(&mut self, mut dest_ptr: *mut u8, num_blocks: usize) {
         assert!(
             num_blocks <= 4 && num_blocks > 0,

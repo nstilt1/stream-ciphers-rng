@@ -29,7 +29,7 @@ impl<'a, R: Rounds, V: Variant> Backend<'a, R, V> {
     ///
     /// # Safety
     /// `dest_ptr` must have at least 64 bytes available to be overwritten, or else it
-    /// could produce undefined behavior
+    /// could cause a segmentation fault or undesired behavior.
     pub(crate) unsafe fn write_ks_block(&mut self, dest_ptr: *mut u8) {
         let mut block_ptr = dest_ptr as *mut u32;
         let res = run_rounds::<R>(&self.0.state);
@@ -44,9 +44,10 @@ impl<'a, R: Rounds, V: Variant> Backend<'a, R, V> {
     ///
     /// # Safety
     /// `dest_ptr` must have at least `64 * num_blocks` bytes available to be
-    /// overwritten, or else it could produce undefined behavior
+    /// overwritten, or else it could cause a segmentation fault or undesired 
+    /// behavior.
     #[inline(always)]
-    #[cfg(feature = "rand_core")]
+    #[cfg(feature = "rng")]
     pub(crate) unsafe fn rng_gen_ks_blocks(&mut self, mut dest_ptr: *mut u8, num_blocks: usize) {
         for _i in 0..num_blocks {
             self.write_ks_block(dest_ptr);

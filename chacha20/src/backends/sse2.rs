@@ -61,13 +61,14 @@ where
 }
 
 #[inline]
-#[cfg(feature = "rand_core")]
+#[cfg(feature = "rng")]
 #[target_feature(enable = "sse2")]
 /// Generates `num_blocks * 64` bytes and blindly writes them to `dest_ptr`
 /// 
 /// # Safety
 /// `dest_ptr` must have at least `num_blocks * 4` bytes available to be 
-/// overwritten, or else it could produce undefined behavior
+/// overwritten, or else it could cause a segmentation fault or undesired 
+/// behavior.
 pub(crate) unsafe fn rng_inner<R>(state: &mut [u32; STATE_WORDS], mut dest_ptr: *mut u8, num_blocks: usize)
 where
     R: Rounds,
@@ -88,7 +89,7 @@ impl<R: Rounds> Backend<R> {
     /// 
     /// # Safety
     /// `dest_ptr` must have at least 64 bytes available to be overwritten, or else it 
-    /// could produce undefined behavior
+    /// could cause a segmentation fault or undesired behavior.
     unsafe fn write_ks_block(&mut self, block: *mut u8) {
         let res = rounds::<R>(&self.v);
         self.v[3] = _mm_add_epi32(self.v[3], _mm_set_epi32(0, 0, 0, 1));

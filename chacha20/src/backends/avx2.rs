@@ -74,7 +74,7 @@ where
 }
 
 #[inline]
-#[cfg(feature = "rand_core")]
+#[cfg(feature = "rng")]
 #[target_feature(enable = "avx2")]
 /// Generates 4 blocks and blindly writes them to dest
 pub(crate) unsafe fn rng_inner<R>(state: &mut [u32; STATE_WORDS], mut dest_ptr: *mut u8, num_blocks: usize)
@@ -153,7 +153,7 @@ impl<R: Rounds> Backend<R> {
     /// 
     /// # Safety
     /// `dest_ptr` must have at least `num_blocks * 64` bytes available to be overwritten, or else it 
-    /// could produce undefined behavior
+    /// could cause a segmentation fault, or undesired behavior.
     unsafe fn write_par_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
         assert!(num_blocks <= PAR_BLOCKS, "num_blocks in avx2::write_par_ks_blocks must be <= 4");
 
