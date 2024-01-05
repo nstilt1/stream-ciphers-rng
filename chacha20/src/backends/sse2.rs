@@ -15,6 +15,9 @@ use cipher::{
     consts::{U1, U64}
 };
 
+#[cfg(feature = "zeroize")]
+use zeroize::Zeroize;
+
 struct Backend<R: Rounds> {
     v: [__m128i; 4],
     _pd: PhantomData<R>,
@@ -81,6 +84,9 @@ where
     }
 
     state[12] = _mm_cvtsi128_si32(backend.v[3]) as u32;
+
+    #[cfg(feature = "zeroize")]
+    backend.v.zeroize();
 }
 
 impl<R: Rounds> Backend<R> {
@@ -91,6 +97,9 @@ impl<R: Rounds> Backend<R> {
     /// `dest_ptr` must have at least 64 bytes available to be overwritten, or else it 
     /// could cause a segmentation fault or undesired behavior.
     unsafe fn write_ks_block(&mut self, block: *mut u8) {
+        #[cfg(feature = "zeroize")]
+        let mut res = rounds::<R>(&self.v);
+        #[cfg(not(feature = "zeroize"))]
         let res = rounds::<R>(&self.v);
         self.v[3] = _mm_add_epi32(self.v[3], _mm_set_epi32(0, 0, 0, 1));
 
@@ -98,6 +107,9 @@ impl<R: Rounds> Backend<R> {
         for i in 0..4 {
             _mm_storeu_si128(block_ptr.add(i), res[i]);
         }
+
+        #[cfg(feature = "zeroize")]
+        res.zeroize();
     }
 }
 
