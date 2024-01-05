@@ -163,7 +163,7 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
     unsafe fn generate(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
         cfg_if! {
             if #[cfg(chacha20_force_soft)] {
-                backends::soft::Backend(self).rng_gen_ks_blocks(dest_ptr, num_blocks);
+                self.rng_gen_ks_blocks(dest_ptr, num_blocks);
             } else if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
                 cfg_if! {
                     if #[cfg(chacha20_force_avx2)] {
@@ -177,7 +177,7 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
                         } else if sse2_token.get() {
                             backends::sse2::rng_inner::<R>(&mut self.state, dest_ptr, num_blocks);
                         } else {
-                            backends::soft::Backend(self).rng_gen_ks_blocks(dest_ptr, num_blocks);
+                            self.rng_gen_ks_blocks(dest_ptr, num_blocks);
                         }
                     }
                 }

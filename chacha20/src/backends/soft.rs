@@ -8,22 +8,16 @@ use crate::chacha::Block;
 
 #[cfg(feature = "cipher")]
 use cipher::{
-    consts::{U1, U64},
-    BlockSizeUser, ParBlocksSizeUser, StreamBackend,
+    consts::U1,
+    ParBlocksSizeUser, StreamBackend,
 };
 
-pub(crate) struct Backend<'a, R: Rounds, V: Variant>(pub(crate) &'a mut ChaChaCore<R, V>);
-
 #[cfg(feature = "cipher")]
-impl<'a, R: Rounds, V: Variant> BlockSizeUser for Backend<'a, R, V> {
-    type BlockSize = U64;
-}
-#[cfg(feature = "cipher")]
-impl<'a, R: Rounds, V: Variant> ParBlocksSizeUser for Backend<'a, R, V> {
+impl<R: Rounds, V: Variant> ParBlocksSizeUser for ChaChaCore<R, V> {
     type ParBlocksSize = U1;
 }
 
-impl<'a, R: Rounds, V: Variant> Backend<'a, R, V> {
+impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
     #[inline(always)]
     /// Generates a single keystream block and blindly writes it to `dest_ptr`
     ///
@@ -32,8 +26,8 @@ impl<'a, R: Rounds, V: Variant> Backend<'a, R, V> {
     /// could cause a segmentation fault or undesired behavior.
     pub(crate) unsafe fn write_ks_block(&mut self, dest_ptr: *mut u8) {
         let mut block_ptr = dest_ptr as *mut u32;
-        let res = run_rounds::<R>(&self.0.state);
-        self.0.state[12] = self.0.state[12].wrapping_add(1);
+        let res = run_rounds::<R>(&self.state);
+        self.state[12] = self.state[12].wrapping_add(1);
 
         for val in res.iter() {
             block_ptr.write_unaligned(val.to_le());
@@ -57,7 +51,7 @@ impl<'a, R: Rounds, V: Variant> Backend<'a, R, V> {
 }
 
 #[cfg(feature = "cipher")]
-impl<'a, R: Rounds, V: Variant> StreamBackend for Backend<'a, R, V> {
+impl<R: Rounds, V: Variant> StreamBackend for ChaChaCore<R, V> {
     #[inline(always)]
     /// Writes a single block to `block`
     fn gen_ks_block(&mut self, block: &mut Block) {
