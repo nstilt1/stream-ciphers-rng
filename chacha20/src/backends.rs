@@ -5,6 +5,9 @@ use cipher::{consts::U64, StreamBackend, BlockSizeUser, ParBlocksSizeUser};
 
 use crate::STATE_WORDS;
 
+#[cfg(feature = "zeroize")]
+use zeroize::Zeroize;
+
 pub(crate) mod soft;
 
 cfg_if! {
@@ -26,12 +29,11 @@ cfg_if! {
         pub(crate) mod avx2;
         pub(crate) mod sse2;
 
-        pub(crate) use self::autodetect::Backend;
+        pub(crate) use self::autodetect::ChaChaCore;
     } else if #[cfg(all(target_arch = "aarch64", target_feature = "neon"))] {
         pub(crate) mod neon;
-        pub use self::neon::Backend;
+        pub use self::neon::ChaChaCore;
     } else {
-        pub(crate) mod soft;
         pub use self::soft::Backend;
     }
 }
@@ -45,20 +47,9 @@ pub(crate) trait CipherMethods: StreamBackend + Sized + ParBlocksSizeUser + Bloc
 pub(crate) trait BackendType {
     const PAR_BLOCKS: usize;
 
-    fn new(state: &mut [u32; STATE_WORDS]) -> Self;
+    fn new(state: &[u32; STATE_WORDS]) -> Self;
 
-    fn get_block_pos(&self) -> u32;
-
-    fn set_block_pos(&mut self, pos: u32);
-
-    #[cfg(feature = "rand_core")]
-    fn set_nonce(&mut self, nonce: [u32; 3]);
-
-    #[cfg(feature = "rand_core")]
-    fn get_nonce(&self) -> [u32; 3];
-
-    #[cfg(feature = "rand_core")]
-    fn get_seed(&self) -> [u32; 8];
+    fn update_state(&mut self, state: &[u32]);
     
     fn increment_counter(&mut self, amount: i32);
 

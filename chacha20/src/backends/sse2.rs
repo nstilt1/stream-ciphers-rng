@@ -12,7 +12,8 @@ use core::arch::x86_64::*;
 #[cfg(feature = "cipher")]
 use cipher::{
     BlockSizeUser, ParBlocksSizeUser, StreamBackend,
-    consts::{U1, U64}
+    consts::{U1, U64},
+    StreamClosure
 };
 
 use super::BackendType;
@@ -30,7 +31,7 @@ pub(crate) struct Backend<R: Rounds, V: Variant> {
 impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     const PAR_BLOCKS: usize = 1;
     #[inline]
-    fn new(state: &mut [u32; STATE_WORDS]) -> Self {
+    fn new(state: &[u32; STATE_WORDS]) -> Self {
         unsafe {
             let state_ptr = state.as_ptr() as *const __m128i;
             Self {
@@ -46,38 +47,11 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
         }
     }
 
-    fn get_block_pos(&self) -> u32 {
-        unsafe { _mm_cvtsi128_si32(self.v[3]) as u32 }
-    }
-
-    fn set_block_pos(&mut self, pos: u32) {
+    fn update_state(&mut self, state: &[u32]) {
         unsafe {
-            let mask = _mm_set_epi32(0, 0, 0, I32_MAX);
-            self.v[3] = _mm_andnot_si128(mask, self.v[3]);
-            self.v[3] = _mm_add_epi32(self.v[3], _mm_set_epi32(0, 0, 0, pos as i32));
+            let state_ptr = state.as_ptr() as *const __m128i;
+            self.v[3] = _mm_loadu_si128(state_ptr.add(3))
         }
-    }
-
-    #[cfg(feature = "rand_core")]
-    fn set_nonce(&mut self, nonce: [u32; 3]) {
-        unsafe {
-            let mask = _mm_set_epi32(0, 0, 0, I32_MAX);
-            self.v[3] = _mm_and_si128(mask, self.v[3]);
-            self.v[3] = _mm_add_epi32(_mm_set_epi32(nonce[2] as i32, nonce[1] as i32, nonce[0] as i32, 0), self.v[3]);
-        }
-    }
-
-    #[cfg(feature = "rand_core")]
-    fn get_nonce(&self) -> [u32; 3] {
-        let words: [u32; 4] = unsafe{ core::mem::transmute(self.v[3]) };
-        [words[2], words[1], words[0]]
-    }
-
-    #[cfg(feature = "rand_core")]
-    fn get_seed(&self) -> [u32; 8] {
-        let seed1: [u32; 4] = unsafe { core::mem::transmute(self.v[1]) };
-        let seed2: [u32; 4] = unsafe { core::mem::transmute(self.v[2]) };
-        [seed1[3], seed1[2], seed1[1], seed1[0], seed2[3], seed2[2], seed2[1], seed2[0]]
     }
 
     fn increment_counter(&mut self, amount: i32) {
@@ -91,7 +65,7 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     /// 
     /// # Safety
     /// `dest_ptr` must have at least 64 bytes available to be overwritten, or else it 
-    /// could produce undefined behavior
+    /// could cause a segmentation fault and/or undesired behavior
     unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
         let mut block_ptr = dest_ptr as *mut __m128i;
         for _i in 0..num_blocks {
@@ -105,17 +79,6 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
         }
     }
 }
-// #[cfg(feature = "cipher")]
-// impl<R: Rounds, V: Variant> Backend<R, V> {
-//     #[inline]
-//     #[target_feature(enable = "sse2")]
-//     pub(crate) unsafe fn inner<F>(&mut self, f: F)
-//     where
-//         F: StreamClosure<BlockSize = U64>,
-//     {
-//         f.call(self)
-//     }
-// }
 
 #[cfg(feature = "cipher")]
 impl<R: Rounds, V: Variant> BlockSizeUser for Backend<R, V> {
@@ -124,6 +87,22 @@ impl<R: Rounds, V: Variant> BlockSizeUser for Backend<R, V> {
 #[cfg(feature = "cipher")]
 impl<R: Rounds, V: Variant> ParBlocksSizeUser for Backend<R, V> {
     type ParBlocksSize = U1;
+}
+
+#[cfg(feature = "cipher")]
+impl<R: Rounds, V: Variant> Backend<R, V> {
+    #[inline]
+    #[cfg(feature = "cipher")]
+    #[target_feature(enable = "sse2")]
+    pub(crate) unsafe fn inner<F>(&mut self, state_counter: &mut u32, f: F) 
+    where
+        R: Rounds,
+        F: StreamClosure<BlockSize = U64>,
+        V: Variant
+    {
+        f.call(self);
+        *state_counter = _mm_extract_epi32::<0>(self.v[3]) as u32;
+    }
 }
 
 #[cfg(feature = "cipher")]

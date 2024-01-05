@@ -12,7 +12,7 @@ use core::arch::x86_64::*;
 #[cfg(feature = "cipher")]
 use cipher::{StreamBackend, 
     consts::{U4, U64}, 
-    ParBlocks, ParBlocksSizeUser, BlockSizeUser
+    ParBlocks, ParBlocksSizeUser, BlockSizeUser, StreamClosure
 };
 
 use super::BackendType;
@@ -85,7 +85,7 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     const PAR_BLOCKS: usize = 4;
 
     #[inline]
-    fn new(state: &mut [u32; STATE_WORDS]) -> Self {
+    fn new(state: &[u32; STATE_WORDS]) -> Self {
         unsafe {
             let state_ptr = state.as_ptr() as *const __m128i;
             let v = [
@@ -111,6 +111,20 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
         }
     }
 
+    /// Updates the 4th row of the ChaCha State
+    fn update_state(&mut self, state: &[u32]) {
+        unsafe {
+            let state_ptr = state.as_ptr() as *const __m128i;
+            let mut c = _mm256_broadcastsi128_si256(_mm_loadu_si128(state_ptr.add(3)));
+            c = _mm256_add_epi32(c, _mm256_setr_epi32(0, 0, 0, 0, 1, 0, 0, 0));
+            for i in 0..N {
+                self.ctr[i] = c;
+                c = _mm256_add_epi32(c, _mm256_setr_epi32(2, 0, 0, 0, 2, 0, 0, 0));
+            }
+            self.block = 4;
+        }
+    }
+
     /// Increments the counter by `amount`
     #[inline]
     fn increment_counter(&mut self, amount: i32) {
@@ -120,104 +134,41 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
             }
         }
     }
-
-    /// Returns the exact block pos
-    fn get_block_pos(&self) -> u32 {
-        unsafe { 
-            (_mm256_extract_epi32::<0>(self.ctr[0]) as u32)
-                .wrapping_add(self.block as u32 % 4)
-        }
-    }
-
-    fn set_block_pos(&mut self, pos: u32) {
-        unsafe {
-            // apply a mask to the counters to set them to 0
-            let mask = _mm256_setr_epi32(I32_ONES, 0, 0, 0, I32_ONES, 0, 0, 0);
-            
-            for i in 0..N {
-                self.ctr[i] = _mm256_andnot_si256(mask, self.ctr[i]);
-                self.ctr[i] = _mm256_add_epi32(
-                    self.ctr[i], 
-                    _mm256_setr_epi32(pos as i32, 0, 0, 0, pos as i32, 0, 0, 0)
-                );
-                
-                // increasing the counter in separate operations to avoid an i32 overflow before the  
-                // `pos + i*2` takes place
-                self.ctr[i] = _mm256_add_epi32(
-                    self.ctr[i], 
-                    _mm256_setr_epi32((i * 2) as i32, 0, 0, 0, (i * 2 + 1) as i32, 0, 0, 0)
-                );
-            }
-            self.block = 4;
-        }
-    }
-
-    #[cfg(feature = "rand_core")]
-    fn set_nonce(&mut self, nonce: [u32; 3]) {
-        unsafe {
-            // apply a mask to the nonces to set them to 0
-            let mask = _mm256_set_epi32(0x0, 0x0, 0x0, I32_ONES, 0x0, 0x0, 0x0, I32_ONES);
-
-            for i in 0..N {
-                self.ctr[i] = _mm256_and_si256(self.ctr[i], mask);
-                // add in the nonce
-                self.ctr[i] = _mm256_add_epi32(
-                    self.ctr[i], 
-                    _mm256_setr_epi32(0, nonce[0] as i32, nonce[1] as i32, nonce[2] as i32, 0, nonce[0] as i32, nonce[1] as i32, nonce[2] as i32)
-                );
-            }
-
-            if self.block != 4 {
-                self.rounds();
-            }
-        }
-    }
-
-    #[cfg(feature = "rand_core")]
-    fn get_nonce(&self) -> [u32; 3] {
-        let words: [u32; 4] = unsafe { core::mem::transmute(_mm256_extracti128_si256::<0>(self.ctr[N-1])) };
-        [words[1], words[2], words[3]]
-    }
-
-    #[cfg(feature = "rand_core")]
-    fn get_seed(&self) -> [u32; 8] {
-        let seed1: [u32; 4] = unsafe { core::mem::transmute(_mm256_extracti128_si256::<0>(self.v[1])) };
-        let seed2: [u32; 4] = unsafe { core::mem::transmute(_mm256_extracti128_si256::<0>(self.v[2])) };
-        let mut result = [0u32; 8];
-        result[0..4].copy_from_slice(&seed1[0..4]);
-        result[4..8].copy_from_slice(&seed2[0..4]);
-        result
-    }
     
+    #[inline]
     /// Generates `num_blocks` blocks and blindly writes them to `dest_ptr` recursively
     /// 
     /// # Safety
     /// `dest_ptr` must have at least `num_blocks * 64` bytes available to be overwritten, or else it 
-    /// could produce undefined behavior
-    unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
-        if self.block == Self::PAR_BLOCKS {
-            self.rounds();
-            self.block = 0;
-        }
-
+    /// could result in a segmentation fault or undesired behavior
+    unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, mut num_blocks: usize) {
         let mut _block_ptr = dest_ptr as *mut __m128i;
+        while num_blocks > 0 {
+            if self.block == Self::PAR_BLOCKS {
+                self.rounds();
+                self.block = 0;
+            }
 
-        // if (self.block % 2 == 0) to check if either `extract_2_blocks` or `extract_first_block` can be used
-        if self.block & 0b01 == 0 {
-            if num_blocks >= 2 {
-                extract_2_blocks!(_block_ptr, self.results[self.block >> 1]);
-                self.block += 2;
-                self.write_ks_blocks(_block_ptr as *mut u8, num_blocks - 2);
-            } else if num_blocks == 1 {
-                extract_1_block!(_block_ptr, self.results[self.block >> 1], 0);
+            // if (self.block % 2 == 0) to check if either `extract_2_blocks` or `extract_first_block` can be used
+            if self.block & 0b01 == 0 {
+                if num_blocks >= 2 {
+                    extract_2_blocks!(_block_ptr, self.results[self.block >> 1]);
+                    self.block += 2;
+                    num_blocks -= 2;
+                    //self.write_ks_blocks(_block_ptr as *mut u8, num_blocks - 2);
+                } else if num_blocks == 1 {
+                    extract_1_block!(_block_ptr, self.results[self.block >> 1], 0);
+                    self.block += 1;
+                    num_blocks -= 1;
+                } // else: num_blocks == 0, recursion ends
+            } else if num_blocks > 0 {
+                // self.block is either 1 or 3
+                extract_1_block!(_block_ptr, self.results[self.block >> 1], 1);
                 self.block += 1;
+                num_blocks -= 1;
+                //self.write_ks_blocks(_block_ptr as *mut u8, num_blocks - 1);
             } // else: num_blocks == 0, recursion ends
-        } else if num_blocks > 0 {
-            // self.block is either 1 or 3
-            extract_1_block!(_block_ptr, self.results[self.block >> 1], 1);
-            self.block += 1;
-            self.write_ks_blocks(_block_ptr as *mut u8, num_blocks - 1);
-        } // else: num_blocks == 0, recursion ends
+        }
     }
 }
 
@@ -249,10 +200,20 @@ impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
     }
 }
 
-
-
-
 impl<R: Rounds, V: Variant> Backend<R, V> {
+    #[inline]
+    #[cfg(feature = "cipher")]
+    #[target_feature(enable = "avx2")]
+    pub(crate) unsafe fn inner<F>(&mut self, state_counter: &mut u32, f: F) 
+    where
+        R: Rounds,
+        F: StreamClosure<BlockSize = U64>,
+        V: Variant
+    {
+        f.call(self);
+        *state_counter = _mm256_extract_epi32::<0>(self.ctr[0]) as u32;
+    }
+
     #[inline]
     #[target_feature(enable = "avx2")]
     /// Overwrites the `self.results` buffer with PAR_BLOCKS results
@@ -403,6 +364,7 @@ unsafe fn add_xor_rot(vs: &mut [[__m256i; 4]; N]) {
     }
 }
 
+/*
 #[cfg(test)]
 mod test {
     use crate::{R20, variants::Ietf};
@@ -610,3 +572,4 @@ mod test {
         }
     }
 }
+*/

@@ -135,7 +135,7 @@ mod xchacha;
 
 mod variants;
 
-use backends::{Backend};
+use backends::{ChaChaCore};
 
 use variants::Variant;
 
@@ -187,115 +187,7 @@ impl Rounds for R20 {
     const COUNT: usize = 10;
 }
 
-cfg_if! {
-    if #[cfg(chacha20_force_soft)] {
-        type Tokens = ();
-    } else if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
-        cfg_if! {
-            if #[cfg(chacha20_force_avx2)] {
-                #[cfg(not(target_feature = "avx2"))]
-                compile_error!("You must enable `avx2` target feature with \
-                    `chacha20_force_avx2` configuration option");
-                type Tokens = ();
-            } else if #[cfg(chacha20_force_sse2)] {
-                #[cfg(not(target_feature = "sse2"))]
-                compile_error!("You must enable `sse2` target feature with \
-                    `chacha20_force_sse2` configuration option");
-                type Tokens = ();
-            } else {
-                cpufeatures::new!(avx2_cpuid, "avx2");
-                cpufeatures::new!(sse2_cpuid, "sse2");
-                type Tokens = (avx2_cpuid::InitToken, sse2_cpuid::InitToken);
-            }
-        }
-    } else {
-        type Tokens = ();
-    }
-}
 
-/// The ChaCha core function.
-#[cfg_attr(feature = "rand_core", derive(Clone))]
-pub struct ChaChaCore<R: Rounds, V: Variant> {
-    /// The backend core
-    backend: Backend<R, V>,
-    /// CPU target feature tokens
-    #[allow(dead_code)]
-    tokens: Tokens,
-    /// Number of rounds to perform
-    rounds: PhantomData<R>,
-    /// the variant of the implementation
-    variant: PhantomData<V>,
-}
-
-impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
-    /// Constructs a ChaChaCore with the specified key, iv, and amount of rounds.
-    /// You must ensure that the iv is of the correct size when using this method
-    /// directly.
-    fn new(key: &[u8; 32], iv: &[u8]) -> Self {
-        let mut state = [0u32; STATE_WORDS];
-        state[0..4].copy_from_slice(&CONSTANTS);
-        let key_chunks = key.chunks_exact(4);
-        for (val, chunk) in state[4..12].iter_mut().zip(key_chunks) {
-            *val = u32::from_le_bytes(chunk.try_into().unwrap());
-        }
-        let iv_chunks = iv.as_ref().chunks_exact(4);
-        for (val, chunk) in state[V::NONCE_INDEX..16].iter_mut().zip(iv_chunks) {
-            *val = u32::from_le_bytes(chunk.try_into().unwrap());
-        }
-
-        cfg_if! {
-            if #[cfg(chacha20_force_soft)] {
-                let tokens = ();
-            } else if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
-                cfg_if! {
-                    if #[cfg(chacha20_force_avx2)] {
-                        let tokens = ();
-                    } else if #[cfg(chacha20_force_sse2)] {
-                        let tokens = ();
-                    } else {
-                        let tokens = (avx2_cpuid::init(), sse2_cpuid::init());
-                    }
-                }
-            } else {
-                let tokens = ();
-            }
-        }
-        Self {
-            backend: Backend::new(&mut state),
-            tokens,
-            rounds: PhantomData,
-            variant: PhantomData,
-        }
-    }
-}
-
-#[cfg(feature = "cipher")]
-impl<R: Rounds, V: Variant> StreamCipherSeekCore for ChaChaCore<R, V> {
-    type Counter = u32;
-
-    #[inline(always)]
-    fn get_block_pos(&self) -> Self::Counter {
-        self.backend.get_block_pos()
-    }
-
-    #[inline(always)]
-    fn set_block_pos(&mut self, pos: Self::Counter) {
-        self.backend.set_block_pos(pos)
-    }
-}
-
-#[cfg(feature = "cipher")]
-impl<R: Rounds, V: Variant> StreamCipherCore for ChaChaCore<R, V> {
-    #[inline(always)]
-    fn remaining_blocks(&self) -> Option<usize> {
-        let rem = u32::MAX - self.get_block_pos();
-        rem.try_into().ok()
-    }
-
-    fn process_with_backend(&mut self, f: impl cipher::StreamClosure<BlockSize = Self::BlockSize>) {
-        self.backend.process_with_backend(f)
-    }
-}
 
 #[cfg(feature = "cipher")]
 impl<R: Rounds, V: Variant> BlockSizeUser for ChaChaCore<R, V> {

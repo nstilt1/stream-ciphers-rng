@@ -3,7 +3,7 @@
 //! Adapted from the Crypto++ `chacha_simd` implementation by Jack Lloyd and
 //! Jeffrey Walton (public domain).
 
-use crate::{Rounds, STATE_WORDS, variant::Variant};
+use crate::{Rounds, STATE_WORDS, CONSTANTS, Variant, backends::BackendType};
 use core::{arch::aarch64::*, marker::PhantomData};
 
 #[cfg(feature = "cipher")]
@@ -13,106 +13,124 @@ use crate::chacha::Block;
 use cipher::{
     consts::{U4, U64},
     BlockSizeUser, ParBlocks, ParBlocksSizeUser, StreamBackend, StreamClosure,
+    StreamCipherCore,
+    StreamCipherSeekCore
 };
+
+#[derive(Clone)]
+pub struct ChaChaCore<R: Rounds, V: Variant> {
+    state: [u32; STATE_WORDS],
+    backend: Backend<R, V>
+}
+
+impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
+    #[inline]
+    pub fn new(key: &[u8; 32], iv: &[u8]) -> Self {
+        let mut state = [0u32; STATE_WORDS];
+        state[0..4].copy_from_slice(&CONSTANTS);
+        let key_chunks = key.chunks_exact(4);
+        for (val, chunk) in state[4..12].iter_mut().zip(key_chunks) {
+            *val = u32::from_le_bytes(chunk.try_into().unwrap());
+        }
+        let iv_chunks = iv.as_ref().chunks_exact(4);
+        for (val, chunk) in state[V::NONCE_INDEX..16].iter_mut().zip(iv_chunks) {
+            *val = u32::from_le_bytes(chunk.try_into().unwrap());
+        }
+
+        Self {
+            state,
+            backend: Backend::new(&state)
+        }
+    }
+
+    #[inline]
+    pub fn update_state(&mut self) {
+        self.backend.update_state(&self.state)
+    }
+
+    #[inline]
+    pub(crate) fn get_block_pos_inner(&self) -> u32 {
+        self.state[12]
+    }
+
+    #[inline]
+    pub(crate) fn set_block_pos_inner(&mut self, pos: u32) {
+        self.state[12] = pos;
+        self.update_state();
+    }
+
+    #[inline]
+    #[cfg(feature = "rand_core")]
+    pub(crate) fn set_nonce(&mut self, nonce: [u32; 3]) {
+        self.state[13..16].copy_from_slice(&nonce);
+        self.update_state()
+    }
+
+    #[inline]
+    #[cfg(feature = "rand_core")]
+    pub(crate) fn get_nonce(&self) -> [u32; 3] {
+        let mut result = [0u32; 3];
+        result.copy_from_slice(&self.state[13..16]);
+        result
+    }
+
+    #[inline]
+    #[cfg(feature = "rand_core")]
+    pub(crate) fn get_seed(&self) -> [u32; 8] {
+        let mut result = [0u32; 8];
+        result.copy_from_slice(&self.state[4..12]);
+        result
+    }
+
+    #[inline]
+    #[cfg(feature = "rand_core")]
+    pub(crate) fn rng_inner(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
+        self.backend.rng_inner(dest_ptr, num_blocks);
+        self.state[12] = self.state[12].wrapping_add(num_blocks as u32);
+    }
+}
+
+#[cfg(feature = "cipher")]
+impl<R: Rounds, V: Variant> StreamCipherSeekCore for ChaChaCore<R, V> {
+    type Counter = u32;
+
+    #[inline(always)]
+    fn get_block_pos(&self) -> Self::Counter {
+        self.state[12]
+    }
+
+    #[inline(always)]
+    fn set_block_pos(&mut self, pos: Self::Counter) {
+        self.state[12] = pos;
+        self.update_state();
+    }
+}
+
+#[cfg(feature = "cipher")]
+impl<'a, R: Rounds, V: Variant> StreamCipherCore for ChaChaCore<R, V> {
+    #[inline(always)]
+    fn remaining_blocks(&self) -> Option<usize> {
+        let rem = u32::MAX - self.get_block_pos();
+        rem.try_into().ok()
+    }
+
+    /// Generate output, overwriting data already in the buffer.
+    #[inline]
+    fn process_with_backend(&mut self, f: impl StreamClosure<BlockSize = U64>) {
+        unsafe {
+            f.call(self)
+        }
+    }
+}
 
 #[derive(Clone)]
 struct Backend<R: Rounds, V: Variant> {
     state: [uint32x4_t; 4],
     ctrs: [uint32x4_t; 4],
+    results: [[uint32x4_t; 4]; 4],
+    block: usize,
     _pd: PhantomData<R>,
     _variant: PhantomData<V>
-}
-
-impl<R: Rounds, V: Variant> Backend<R, V> {
-    #[inline]
-    unsafe fn new(state: &mut [u32; STATE_WORDS]) -> Self {
-        let state = [
-            vld1q_u32(state.as_ptr().offset(0)),
-            vld1q_u32(state.as_ptr().offset(4)),
-            vld1q_u32(state.as_ptr().offset(8)),
-            vld1q_u32(state.as_ptr().offset(12)),
-        ];
-        let ctrs = [
-            vld1q_u32([1, 0, 0, 0].as_ptr()),
-            vld1q_u32([2, 0, 0, 0].as_ptr()),
-            vld1q_u32([3, 0, 0, 0].as_ptr()),
-            vld1q_u32([4, 0, 0, 0].as_ptr()),
-        ];
-        Backend::<R, V> {
-            state,
-            ctrs,
-            _pd: PhantomData,
-            _variant: PhantomData
-        }
-    }
-}
-
-#[inline]
-#[cfg(feature = "cipher")]
-#[target_feature(enable = "neon")]
-pub(crate) unsafe fn inner<R, F, V>(state: &mut [u32; STATE_WORDS], f: F)
-where
-    R: Rounds,
-    F: StreamClosure<BlockSize = U64>,
-    V: Variant
-{
-    let mut backend = Backend::<R, V>::new(state);
-
-    f.call(&mut backend);
-
-    vst1q_u32(state.as_mut_ptr().offset(12), backend.state[3]);
-}
-
-#[inline]
-#[cfg(feature = "rand_core")]
-#[target_feature(enable = "neon")]
-/// Sets up backend and blindly writes 4 blocks to dest_ptr.
-pub(crate) unsafe fn rng_inner<R, V>(
-    state: &mut [u32; STATE_WORDS],
-    mut dest_ptr: *mut u8,
-    num_blocks: usize,
-) where
-    R: Rounds,
-    V: Variant,
-{
-    let mut backend = Backend::<R, V>::new(state);
-
-    let num_chunks = num_blocks >> 2;
-    let remaining = num_blocks & 0x03;
-
-    for _chunk in 0..num_chunks {
-        backend.write_par_ks_blocks(dest_ptr, 4);
-        dest_ptr = dest_ptr.add(256);
-    }
-    if remaining > 0 {
-        backend.write_par_ks_blocks(dest_ptr, remaining);
-    }
-
-    vst1q_u32(state.as_mut_ptr().offset(12), backend.state[3]);
-}
-
-#[cfg(feature = "cipher")]
-impl<R: Rounds, V: Variant> BlockSizeUser for Backend<R, V> {
-    type BlockSize = U64;
-}
-#[cfg(feature = "cipher")]
-impl<R: Rounds, V: Variant> ParBlocksSizeUser for Backend<R, V> {
-    type ParBlocksSize = U4;
-}
-
-#[cfg(feature = "cipher")]
-impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
-    #[inline(always)]
-    fn gen_ks_block(&mut self, block: &mut Block) {
-        // SAFETY: Block is a 64-byte array
-        unsafe { self.write_par_ks_blocks(block.as_mut_ptr(), 1) }
-    }
-
-    #[inline(always)]
-    fn gen_par_ks_blocks(&mut self, blocks: &mut ParBlocks<Self>) {
-        // SAFETY: `ParBlocks` is a 256-byte 2D array.
-        unsafe { self.write_par_ks_blocks(blocks.as_mut_ptr() as *mut u8, 4) }
-    }
 }
 
 macro_rules! add64 {
@@ -152,7 +170,54 @@ macro_rules! add_assign_vec {
     };
 }
 
-impl<R: Rounds, V: Variant> Backend<R, V> {
+impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
+    const PAR_BLOCKS: usize = 4;
+    #[inline]
+    fn new(state: &[u32; STATE_WORDS]) -> Self {
+        unsafe {
+            let state = [
+                vld1q_u32(state.as_ptr().offset(0)),
+                vld1q_u32(state.as_ptr().offset(4)),
+                vld1q_u32(state.as_ptr().offset(8)),
+                vld1q_u32(state.as_ptr().offset(12)),
+            ];
+            let ctrs = [
+                vld1q_u32([1, 0, 0, 0].as_ptr()),
+                vld1q_u32([2, 0, 0, 0].as_ptr()),
+                vld1q_u32([3, 0, 0, 0].as_ptr()),
+                vld1q_u32([4, 0, 0, 0].as_ptr()),
+            ];
+            Backend::<R, V> {
+                state,
+                ctrs,
+                results: [
+                    [state[0], state[1], state[2], state[3]],
+                    [state[0], state[1], state[2], add64!(state[3], ctrs[0])],
+                    [state[0], state[1], state[2], add64!(state[3], ctrs[1])],
+                    [state[0], state[1], state[2], add64!(state[3], ctrs[2])],
+                ],
+                block: 4,
+                _pd: PhantomData,
+                _variant: PhantomData
+            }
+        }
+    }
+
+    #[inline]
+    fn update_state(&mut self, state: &[u32]) {
+        unsafe {
+            self.state[3] = vld1q_u32(state.as_ptr().offset(12));
+        }
+    }
+
+    #[inline]
+    fn increment_counter(&mut self, amount: i32) {
+        debug_assert!(amount > 0 && amount <= Self::PAR_BLOCKS.try_into().unwrap());
+        unsafe {
+            self.state[3] = add64!(self.state[3], self.ctrs[amount as usize - 1]);
+        }
+    }
+
     #[inline(always)]
     /// Generates `num_blocks` blocks and blindly writes them to `dest_ptr`
     ///
@@ -160,16 +225,40 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
     ///
     /// # Safety
     /// `dest_ptr` must have at least `64 * num_blocks` bytes available to be
-    /// overwritten, or else it could produce undefined behavior
-    unsafe fn write_par_ks_blocks(&mut self, mut dest_ptr: *mut u8, num_blocks: usize) {
-        assert!(
-            num_blocks <= 4 && num_blocks > 0,
-            "neon::write_par_ks_blocks() error: num_blocks must be: 1 <= num_blocks <= 4"
-        );
+    /// overwritten, or else it could cause a segmentation fault and/or undesired 
+    /// behavior
+    unsafe fn write_ks_blocks(&mut self, mut dest_ptr: *mut u8, mut num_blocks: usize) {
+        let mut max_block_index: usize;
+        while num_blocks > 0 {
+            if self.block >= Self::PAR_BLOCKS {
+                self.rounds();
+                self.block = 0;
+            }
 
-        // these are the output blocks, and they cannot persist as a member of Backend
-        // without producing incorrect values (eventually, in fill_bytes())
-        let mut blocks = [
+            // using a saturating add because this could overflow. Very small chance though
+            max_block_index = Self::PAR_BLOCKS.min(self.block.saturating_add(num_blocks));
+            for block in self.block..max_block_index {
+                // write blocks to pointer
+                for state_row in 0..4 {
+                    vst1q_u8(
+                        dest_ptr.offset(state_row << 4),
+                        vreinterpretq_u8_u32(self.results[block][state_row as usize]),
+                    );
+                }
+                dest_ptr = dest_ptr.add(64);
+                //num_blocks -= 1;
+            }
+            num_blocks -= max_block_index - self.block;
+            self.block = max_block_index;
+        }
+    }
+}
+
+impl<R: Rounds, V: Variant> Backend<R, V> {
+    #[inline]
+    #[target_feature(enable = "neon")]
+    unsafe fn rounds(&mut self) {
+        self.results = [
             [self.state[0], self.state[1], self.state[2], self.state[3]],
             [self.state[0], self.state[1], self.state[2], add64!(self.state[3], self.ctrs[0])],
             [self.state[0], self.state[1], self.state[2], add64!(self.state[3], self.ctrs[1])],
@@ -177,27 +266,42 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
         ];
 
         for _ in 0..R::COUNT {
-            double_quarter_round(&mut blocks);
+            double_quarter_round(&mut self.results);
         }
 
-        for block in 0..num_blocks {
+        for block in 0..4 {
             // add state to block
             for state_row in 0..4 {
-                add_assign_vec!(blocks[block][state_row], self.state[state_row]);
+                add_assign_vec!(self.results[block][state_row], self.state[state_row]);
             }
             if block > 0 {
-                blocks[block][3] = add64!(blocks[block][3], self.ctrs[block - 1]);
+                self.results[block][3] = add64!(self.results[block][3], self.ctrs[block - 1]);
             }
-            // write blocks to pointer
-            for state_row in 0..4 {
-                vst1q_u8(
-                    dest_ptr.offset(state_row << 4),
-                    vreinterpretq_u8_u32(blocks[block][state_row as usize]),
-                );
-            }
-            dest_ptr = dest_ptr.add(64);
         }
-        self.state[3] = add64!(self.state[3], self.ctrs[num_blocks - 1]);
+        
+        self.increment_counter(Self::PAR_BLOCKS as i32);
+    }
+}
+
+#[cfg(feature = "cipher")]
+impl<R: Rounds, V: Variant> ParBlocksSizeUser for ChaChaCore<R, V> {
+    type ParBlocksSize = U4;
+}
+
+#[cfg(feature = "cipher")]
+impl<R: Rounds, V: Variant> StreamBackend for ChaChaCore<R, V> {
+    #[inline(always)]
+    fn gen_ks_block(&mut self, block: &mut Block) {
+        // SAFETY: Block is a 64-byte array
+        unsafe { self.backend.write_ks_blocks(block.as_mut_ptr(), 1); }
+        self.state[12] = self.state[12].wrapping_add(1);
+    }
+
+    #[inline(always)]
+    fn gen_par_ks_blocks(&mut self, blocks: &mut ParBlocks<Self>) {
+        // SAFETY: `ParBlocks` is a 256-byte 2D array.
+        unsafe { self.backend.write_ks_blocks(blocks.as_mut_ptr() as *mut u8, 4); }
+        self.state[12] = self.state[12].wrapping_add(4);
     }
 }
 

@@ -11,7 +11,7 @@ use crate::chacha::Block;
 #[cfg(feature = "cipher")]
 use cipher::{
     consts::{U1, U64},
-    BlockSizeUser, ParBlocksSizeUser, StreamBackend
+    BlockSizeUser, ParBlocksSizeUser, StreamBackend, StreamClosure
 };
 
 use super::BackendType;
@@ -35,19 +35,26 @@ impl<R: Rounds, V: Variant> ParBlocksSizeUser for Backend<R, V> {
 impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     const PAR_BLOCKS: usize = 1;
 
-    fn new(state: &mut [u32; STATE_WORDS]) -> Self {
+    fn new(state: &[u32; STATE_WORDS]) -> Self {
         Self {
             state: *state,
             _r: PhantomData,
             _variant: PhantomData
         }
     }
+
+    #[inline]
+    fn update_state(&mut self, state: &[u32]) {
+        self.state[12..16].copy_from_slice(&state[12..16])
+    }
+
     #[inline(always)]
     /// Generates `num_blocks * 64` bytes and blindly writes them to `dest_ptr`
     ///
     /// # Safety
     /// `dest_ptr` must have at least `64 * num_blocks` bytes available to be
-    /// overwritten, or else it could produce undefined behavior
+    /// overwritten, or else it could cause a segmentation fault and/or undesired
+    /// behavior.
     unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
         let mut block_ptr = dest_ptr as *mut u32;
         for _i in 0..num_blocks {
@@ -61,37 +68,8 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
         }
     }
 
-    #[cfg(feature = "rand_core")]
-    fn set_nonce(&mut self, nonce: [u32; 3]) {
-        for (state, val) in self.state.iter_mut().zip(nonce.iter()) {
-            *state = val.to_le()
-        }
-    }
-
-    #[cfg(feature = "rand_core")]
-    fn get_nonce(&self) -> [u32; 3] {
-        let mut result = [0u32; 3];
-        result.copy_from_slice(&self.state[13..16]);
-        result
-    }
-
-    #[cfg(feature = "rand_core")]
-    fn get_seed(&self) -> [u32; 8] {
-        let mut result = [0u32; 8];
-        result.copy_from_slice(&self.state[4..12]);
-        result
-    }
-
     fn increment_counter(&mut self, amount: i32) {
         self.state[12] = self.state[12].wrapping_add(amount as u32);
-    }
-
-    fn get_block_pos(&self) -> u32 {
-        self.state[12]
-    }
-
-    fn set_block_pos(&mut self, pos: u32) {
-        self.state[12] = pos
     }
 }
 
@@ -104,6 +82,21 @@ impl<'a, R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
         unsafe {
             self.write_ks_blocks(block.as_mut_ptr(), 1);
         }
+    }
+}
+
+#[cfg(feature = "cipher")]
+impl<'a, R: Rounds, V: Variant> Backend<R, V> {
+    #[inline]
+    #[cfg(feature = "cipher")]
+    pub(crate) unsafe fn inner<F>(&mut self, state_counter: &mut u32, f: F) 
+    where
+        R: Rounds,
+        F: StreamClosure<BlockSize = U64>,
+        V: Variant
+    {
+        f.call(self);
+        *state_counter = self.state[12]
     }
 }
 
