@@ -2,7 +2,7 @@
 //! fallback to a portable version when they're unavailable.
 
 use super::{avx2, soft, sse2};
-use crate::{Rounds, STATE_WORDS, CONSTANTS, variants::Variant, backends::BackendType};
+use crate::{Rounds, STATE_WORDS, CONSTANTS, variants::Variant, backends::BackendType, StreamCipherSeekCore};
 use core::mem::ManuallyDrop;
 use cfg_if::cfg_if;
 
@@ -79,7 +79,7 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
         };
 
         Self {
-            state: state,
+            state,
             inner,
             avx2_token,
             sse2_token,

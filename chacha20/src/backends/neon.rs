@@ -229,28 +229,29 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     /// behavior
     unsafe fn write_ks_blocks(&mut self, mut dest_ptr: *mut u8, mut num_blocks: usize) {
         let mut max_block_index: usize;
-        while num_blocks > 0 {
-            if self.block >= Self::PAR_BLOCKS {
-                self.rounds();
-                self.block = 0;
-            }
-
-            // using a saturating add because this could overflow. Very small chance though
-            max_block_index = Self::PAR_BLOCKS.min(self.block.saturating_add(num_blocks));
-            for block in self.block..max_block_index {
-                // write blocks to pointer
-                for state_row in 0..4 {
-                    vst1q_u8(
-                        dest_ptr.offset(state_row << 4),
-                        vreinterpretq_u8_u32(self.results[block][state_row as usize]),
-                    );
-                }
-                dest_ptr = dest_ptr.add(64);
-                //num_blocks -= 1;
-            }
-            num_blocks -= max_block_index - self.block;
-            self.block = max_block_index;
+        //while num_blocks > 0 {
+        if self.block >= Self::PAR_BLOCKS {
+            self.rounds();
+            self.block = 0;
         }
+
+        // using a saturating add because this could overflow. Very small chance though
+        max_block_index = Self::PAR_BLOCKS.min(self.block.saturating_add(num_blocks));
+        for block in self.block..max_block_index {
+            // write blocks to pointer
+            for state_row in 0..4 {
+                vst1q_u8(
+                    dest_ptr.offset(state_row << 4),
+                    vreinterpretq_u8_u32(self.results[block][state_row as usize]),
+                );
+            }
+            dest_ptr = dest_ptr.add(64);
+            //num_blocks -= 1;
+        }
+        num_blocks -= max_block_index - self.block;
+        self.block = max_block_index;
+        self.write_ks_blocks(dest_ptr, num_blocks)
+        //}
     }
 }
 
