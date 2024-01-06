@@ -82,9 +82,7 @@ where
     vst1q_u32(core.state.as_mut_ptr().offset(12), backend.state[3]);
 
     #[cfg(feature = "zeroize")]
-    for vec in backend.state.iter_mut() {
-        vec.zeroize();
-    }
+    backend.state.zeroize();
 }
 
 #[cfg(feature = "cipher")]
@@ -173,11 +171,7 @@ impl<R: Rounds> StreamBackend for Backend<R> {
             self.state[3] = add64!(self.state[3], self.ctrs[3]);
 
             #[cfg(feature = "zeroize")]
-            for b in 0..4 {
-                for r in 0..4 {
-                    blocks[b][r].zeroize();
-                }
-            }
+            blocks.zeroize();
         }
     }
 }
