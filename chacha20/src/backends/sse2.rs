@@ -18,9 +18,6 @@ use cipher::{
 
 use super::BackendType;
 
-/// An i32 of all 1s. I'm not sure if i32::MAX would work, since a bit might be 0
-const I32_MAX: i32 = 0xFFFF_FFFFu32 as i32;
-
 #[derive(Clone)]
 pub(crate) struct Backend<R: Rounds, V: Variant> {
     v: [__m128i; 4],

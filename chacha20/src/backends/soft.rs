@@ -3,7 +3,7 @@
 
 use core::marker::PhantomData;
 
-use crate::{variants::Variant, Rounds, STATE_WORDS};
+use crate::{variants::Variant, Rounds, STATE_WORDS, CONSTANTS};
 
 #[cfg(feature = "cipher")]
 use crate::chacha::Block;
@@ -15,6 +15,118 @@ use cipher::{
 };
 
 use super::BackendType;
+
+use cfg_if::cfg_if;
+
+cfg_if! {
+    if #[cfg(any(chacha20_force_soft, not(any(target_arch = "x86", target_arch = "x86_64", all(target_arch = "aarch64", target_feature = "neon")))))] {
+        #[cfg(feature = "cipher")]
+        use cipher::{StreamCipherCore, StreamCipherSeekCore};
+
+        #[derive(Clone)]
+        pub struct ChaChaCore<R: Rounds, V: Variant> {
+            pub(crate) state: [u32; STATE_WORDS], 
+            backend: Backend<R, V>
+        }
+
+        impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
+            pub fn new(key: &[u8; 32], iv: &[u8]) -> Self {
+                let mut state = [0u32; STATE_WORDS];
+                state[0..4].copy_from_slice(&CONSTANTS);
+                let key_chunks = key.chunks_exact(4);
+                for (val, chunk) in state[4..12].iter_mut().zip(key_chunks) {
+                    *val = u32::from_le_bytes(chunk.try_into().unwrap());
+                }
+                let iv_chunks = iv.as_ref().chunks_exact(4);
+                for (val, chunk) in state[V::NONCE_INDEX..16].iter_mut().zip(iv_chunks) {
+                    *val = u32::from_le_bytes(chunk.try_into().unwrap());
+                }
+
+                Self {
+                    state,
+                    backend: Backend::new(&state)
+                }
+            }
+
+            #[inline]
+            fn update_state(&mut self) {
+                self.backend.update_state(&self.state)
+            }
+
+            #[inline]
+            pub(crate) fn get_block_pos_inner(&self) -> u32 {
+                self.state[12]
+            }
+
+            #[inline]
+            pub(crate) fn set_block_pos_inner(&mut self, pos: u32) {
+                self.state[12] = pos;
+                self.update_state();
+            }
+
+            #[inline]
+            #[cfg(feature = "rng")]
+            pub(crate) fn set_nonce(&mut self, nonce: [u32; 3]) {
+                self.state[13..16].copy_from_slice(&nonce);
+                self.update_state();
+            }
+
+            #[inline]
+            #[cfg(feature = "rng")]
+            pub(crate) fn get_nonce(&self) -> [u32; 3] {
+                let mut result = [0u32; 3];
+                result.copy_from_slice(&self.state[13..16]);
+                result
+            }
+
+            #[inline]
+            #[cfg(feature = "rng")]
+            pub(crate) fn get_seed(&self) -> [u32; 8] {
+                let mut result = [0u32; 8];
+                result.copy_from_slice(&self.state[4..12]);
+                result
+            }
+
+            #[inline]
+            #[cfg(feature = "rng")]
+            pub(crate) fn rng_inner(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
+                self.backend.rng_inner(dest_ptr, num_blocks);
+                self.state[12] = self.state[12].wrapping_add(num_blocks as u32);
+            }
+        }
+
+        #[cfg(feature = "cipher")]
+        impl<R: Rounds, V: Variant> StreamCipherSeekCore for ChaChaCore<R, V> {
+            type Counter = u32;
+
+            #[inline(always)]
+            fn get_block_pos(&self) -> Self::Counter {
+                self.state[12]
+            }
+
+            #[inline(always)]
+            fn set_block_pos(&mut self, pos: Self::Counter) {
+                self.state[12] = pos;
+                self.update_state();
+            }
+        }
+
+        #[cfg(feature = "cipher")]
+        impl<R: Rounds, V: Variant> StreamCipherCore for ChaChaCore<R, V> {
+            #[inline(always)]
+            fn remaining_blocks(&self) -> Option<usize> {
+                let rem = u32::MAX - self.get_block_pos();
+                rem.try_into().ok()
+            }
+
+            /// Generate output, overwriting data already in the buffer.
+            #[inline]
+            fn process_with_backend(&mut self, f: impl cipher::StreamClosure<BlockSize = U64>) {
+                self.backend.inner(&mut self.state[12], f)
+            }
+        }
+    }
+}
 
 #[derive(Clone)]
 pub(crate) struct Backend<R: Rounds, V: Variant>{
@@ -89,7 +201,7 @@ impl<'a, R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
 impl<'a, R: Rounds, V: Variant> Backend<R, V> {
     #[inline]
     #[cfg(feature = "cipher")]
-    pub(crate) unsafe fn inner<F>(&mut self, state_counter: &mut u32, f: F) 
+    pub(crate) fn inner<F>(&mut self, state_counter: &mut u32, f: F) 
     where
         R: Rounds,
         F: StreamClosure<BlockSize = U64>,

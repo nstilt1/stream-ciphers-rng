@@ -11,7 +11,7 @@ cpufeatures::new!(sse2_cpuid, "sse2");
 
 /// The ChaCha core function.
 pub struct ChaChaCore<R: Rounds, V: Variant> {
-    state: [u32; STATE_WORDS],
+    pub(crate) state: [u32; STATE_WORDS],
     inner: Inner<R, V>,
     avx2_token: avx2_cpuid::InitToken,
     sse2_token: sse2_cpuid::InitToken,
@@ -119,14 +119,14 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
     }
 
     #[inline]
-    #[cfg(feature = "rand_core")]
+    #[cfg(feature = "rng")]
     pub(crate) fn set_nonce(&mut self, nonce: [u32; 3]) {
         self.state[13..16].copy_from_slice(&nonce);
         self.update_state();
     }
 
     #[inline]
-    #[cfg(feature = "rand_core")]
+    #[cfg(feature = "rng")]
     pub(crate) fn get_nonce(&self) -> [u32; 3] {
         let mut result = [0u32; 3];
         result.copy_from_slice(&self.state[13..16]);
@@ -134,7 +134,7 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
     }
 
     #[inline]
-    #[cfg(feature = "rand_core")]
+    #[cfg(feature = "rng")]
     pub(crate) fn get_seed(&self) -> [u32; 8] {
         let mut result = [0u32; 8];
         result.copy_from_slice(&self.state[4..12]);
@@ -142,7 +142,7 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
     }
 
     #[inline]
-    #[cfg(feature = "rand_core")]
+    #[cfg(feature = "rng")]
     pub(crate) fn rng_inner(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
         cfg_if! {
             if #[cfg(chacha20_force_soft)] {

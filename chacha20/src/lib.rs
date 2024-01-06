@@ -115,20 +115,15 @@
 #[cfg(feature = "cipher")]
 pub use cipher;
 #[cfg(feature = "cipher")]
-use cipher::{consts::U64, BlockSizeUser, StreamCipherCore, StreamCipherSeekCore};
+use cipher::StreamCipherSeekCore;
 
-use cfg_if::cfg_if;
-use core::marker::PhantomData;
-
-#[cfg(feature = "zeroize")]
-use zeroize::{Zeroize, ZeroizeOnDrop};
 
 pub(crate) mod backends;
 #[cfg(feature = "cipher")]
 mod chacha;
 #[cfg(feature = "legacy")]
 mod legacy;
-#[cfg(feature = "rand_core")]
+#[cfg(feature = "rng")]
 mod rng;
 #[cfg(feature = "xchacha")]
 mod xchacha;
@@ -141,9 +136,9 @@ use variants::Variant;
 
 #[cfg(feature = "cipher")]
 pub use chacha::{ChaCha12, ChaCha20, ChaCha8, Key, KeyIvInit};
-#[cfg(feature = "rand_core")]
+#[cfg(feature = "rng")]
 pub use rand_core;
-#[cfg(feature = "rand_core")]
+#[cfg(feature = "rng")]
 pub use rng::{ChaCha12Core, ChaCha12Rng, ChaCha20Core, ChaCha20Rng, ChaCha8Core, ChaCha8Rng};
 
 #[cfg(feature = "legacy")]
@@ -186,22 +181,3 @@ pub struct R20;
 impl Rounds for R20 {
     const COUNT: usize = 10;
 }
-
-
-
-#[cfg(feature = "cipher")]
-impl<R: Rounds, V: Variant> BlockSizeUser for ChaChaCore<R, V> {
-    type BlockSize = U64;
-}
-
-#[cfg(feature = "zeroize")]
-#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
-impl<R: Rounds, V: Variant> Drop for ChaChaCore<R, V> {
-    fn drop(&mut self) {
-        self.state.zeroize();
-    }
-}
-
-#[cfg(feature = "zeroize")]
-#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
-impl<R: Rounds, V: Variant> ZeroizeOnDrop for ChaChaCore<R, V> {}

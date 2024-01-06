@@ -3,16 +3,16 @@ use cfg_if::cfg_if;
 #[cfg(feature = "cipher")]
 use cipher::{consts::U64, StreamBackend, BlockSizeUser, ParBlocksSizeUser};
 
-use crate::STATE_WORDS;
+use crate::{STATE_WORDS, Rounds, Variant};
 
 #[cfg(feature = "zeroize")]
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 pub(crate) mod soft;
 
 cfg_if! {
     if #[cfg(chacha20_force_soft)] {
-        pub use self::soft::Backend;
+        pub use self::soft::ChaChaCore;
     } else if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
         // cfg_if! {
         //     if #[cfg(chacha20_force_avx2)] {
@@ -34,7 +34,7 @@ cfg_if! {
         pub(crate) mod neon;
         pub use self::neon::ChaChaCore;
     } else {
-        pub use self::soft::Backend;
+        pub use self::soft::ChaChaCore;
     }
 }
 
@@ -55,7 +55,7 @@ pub(crate) trait BackendType {
 
     unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize);
 
-    #[cfg(feature = "rand_core")]
+    #[cfg(feature = "rng")]
     /// Generates `num_blocks * 64` bytes and blindly writes them to `dest_ptr`
     /// 
     /// # Safety
@@ -67,3 +67,21 @@ pub(crate) trait BackendType {
         }
     }
 }
+
+
+#[cfg(feature = "cipher")]
+impl<R: Rounds, V: Variant> BlockSizeUser for ChaChaCore<R, V> {
+    type BlockSize = U64;
+}
+
+#[cfg(feature = "zeroize")]
+#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
+impl<R: Rounds, V: Variant> Drop for ChaChaCore<R, V> {
+    fn drop(&mut self) {
+        self.state.zeroize();
+    }
+}
+
+#[cfg(feature = "zeroize")]
+#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
+impl<R: Rounds, V: Variant> ZeroizeOnDrop for ChaChaCore<R, V> {}
