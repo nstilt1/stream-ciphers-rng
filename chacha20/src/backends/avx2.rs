@@ -170,6 +170,23 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
         } // else: num_blocks == 0, recursion ends
         //}
     }
+
+    #[cfg(feature = "rng")]
+    #[inline]
+    fn rng_inner(&mut self, mut dest_ptr: *mut u8, mut num_blocks: usize) {
+        // limiting recursion depth to a maximum of 3 recursive calls to try 
+        // to reduce memory usage
+        unsafe {
+            while num_blocks > 4 {
+                self.write_ks_blocks(dest_ptr, 4);
+                dest_ptr = dest_ptr.add(256);
+                num_blocks -= 4;
+            }
+            if num_blocks > 0 {
+                self.write_ks_blocks(dest_ptr, num_blocks)
+            }
+        }
+    }
 }
 
 #[cfg(feature = "cipher")]
