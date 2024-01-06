@@ -216,7 +216,7 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
         }
     }
 
-    //#[inline(always)]
+    #[inline(always)]
     /// Generates `num_blocks` blocks and blindly writes them to `dest_ptr`
     ///
     /// `num_blocks` must be greater than 0, and less than or equal to 4.
