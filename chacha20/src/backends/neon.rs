@@ -18,6 +18,9 @@ use cipher::{
 #[cfg(feature = "rng")]
 use crate::Variant;
 
+#[cfg(feature = "zeroize")]
+use zeroize::Zeroize;
+
 struct Backend<R: Rounds> {
     state: [uint32x4_t; 4],
     ctrs: [uint32x4_t; 4],
@@ -88,6 +91,9 @@ pub(crate) unsafe fn rng_inner<R, V>(
     }
 
     vst1q_u32(state.as_mut_ptr().offset(12), backend.state[3]);
+
+    #[cfg(feature = "zeroize")]
+    backend.state.zeroize();
 }
 
 #[cfg(feature = "cipher")]
@@ -198,6 +204,9 @@ impl<R: Rounds> Backend<R> {
             dest_ptr = dest_ptr.add(64);
         }
         self.state[3] = add64!(self.state[3], self.ctrs[num_blocks - 1]);
+
+        #[cfg(feature = "zeroize")]
+        blocks.zeroize();
     }
 }
 
