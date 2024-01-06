@@ -250,7 +250,9 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
         }
         num_blocks -= max_block_index - self.block;
         self.block = max_block_index;
-        self.write_ks_blocks(dest_ptr, num_blocks)
+        if num_blocks > 0 {
+            self.write_ks_blocks(dest_ptr, num_blocks)
+        }
         //}
     }
 }
