@@ -225,23 +225,22 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     /// `dest_ptr` must have at least `64 * num_blocks` bytes available to be
     /// overwritten, or else it could cause a segmentation fault and/or undesired 
     /// behavior
-    unsafe fn write_ks_blocks(&mut self, mut dest_ptr: *mut u8, mut num_blocks: usize) {
-        debug_assert!(0 < num_blocks && num_blocks >= Self::PAR_BLOCKS, "num_blocks must be in 0 < num_blocks <= 4");
-        while num_blocks > 0 {
-            self.rounds();
-            for block in 0..num_blocks {
-                // write blocks to pointer
-                for state_row in 0..4 {
-                    vst1q_u8(
-                        dest_ptr.offset(state_row << 4),
-                        vreinterpretq_u8_u32(self.results[block][state_row as usize]),
-                    );
-                }
-                dest_ptr = dest_ptr.add(64);
+    unsafe fn write_ks_blocks(&mut self, mut dest_ptr: *mut u8, num_blocks: usize) {
+        debug_assert!(0 < num_blocks && num_blocks <= Self::PAR_BLOCKS, "num_blocks must be in 0 < num_blocks <= 4");
+        
+        self.rounds();
+        for block in 0..num_blocks {
+            // write blocks to pointer
+            for state_row in 0..4 {
+                vst1q_u8(
+                    dest_ptr.offset(state_row << 4),
+                    vreinterpretq_u8_u32(self.results[block][state_row as usize]),
+                );
             }
-
-            self.increment_counter(num_blocks as i32);
+            dest_ptr = dest_ptr.add(64);
         }
+
+        self.increment_counter(num_blocks as i32);
     }
 
     #[inline]
