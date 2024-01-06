@@ -218,7 +218,7 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
         }
     }
 
-    //#[inline(always)]
+    #[inline(always)]
     /// Generates `num_blocks` blocks and blindly writes them to `dest_ptr`
     ///
     /// `num_blocks` must be greater than 0, and less than or equal to 4.
@@ -228,50 +228,50 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     /// overwritten, or else it could cause a segmentation fault and/or undesired 
     /// behavior
     unsafe fn write_ks_blocks(&mut self, mut dest_ptr: *mut u8, mut num_blocks: usize) {
-        let mut max_block_index: usize;
-        //while num_blocks > 0 {
-        if self.block >= Self::PAR_BLOCKS {
-            self.rounds();
-            self.block = 0;
-        }
-
-        // using a saturating add because this could overflow. Very small chance though
-        max_block_index = Self::PAR_BLOCKS.min(self.block.saturating_add(num_blocks));
-        for block in self.block..max_block_index {
-            // write blocks to pointer
-            for state_row in 0..4 {
-                vst1q_u8(
-                    dest_ptr.offset(state_row << 4),
-                    vreinterpretq_u8_u32(self.results[block][state_row as usize]),
-                );
+        // let mut max_block_index: usize;
+        while num_blocks > 0 {
+            if self.block >= Self::PAR_BLOCKS {
+                self.rounds();
+                self.block = 0;
             }
-            dest_ptr = dest_ptr.add(64);
-            //num_blocks -= 1;
+
+            // using a saturating add because this could overflow. Very small chance though
+            let max_block_index = Self::PAR_BLOCKS.min(self.block.saturating_add(num_blocks));
+            for block in self.block..max_block_index {
+                // write blocks to pointer
+                for state_row in 0..4 {
+                    vst1q_u8(
+                        dest_ptr.offset(state_row << 4),
+                        vreinterpretq_u8_u32(self.results[block][state_row as usize]),
+                    );
+                }
+                dest_ptr = dest_ptr.add(64);
+                //num_blocks -= 1;
+            }
+            num_blocks -= max_block_index - self.block;
+            self.block = max_block_index;
+            // if num_blocks > 0 {
+            //     self.write_ks_blocks(dest_ptr, num_blocks)
+            // }
         }
-        num_blocks -= max_block_index - self.block;
-        self.block = max_block_index;
-        if num_blocks > 0 {
-            self.write_ks_blocks(dest_ptr, num_blocks)
-        }
-        //}
     }
 
-    #[cfg(feature = "rng")]
-    #[inline]
-    fn rng_inner(&mut self, mut dest_ptr: *mut u8, mut num_blocks: usize) {
-        // limiting recursion depth to a maximum of 2 recursive calls to try 
-        // to reduce memory usage
-        unsafe {
-            while num_blocks > 4 {
-                self.write_ks_blocks(dest_ptr, 4);
-                dest_ptr = dest_ptr.add(256);
-                num_blocks -= 4;
-            }
-            if num_blocks > 0 {
-                self.write_ks_blocks(dest_ptr, num_blocks);
-            }
-        }
-    }
+    // #[cfg(feature = "rng")]
+    // #[inline]
+    // fn rng_inner(&mut self, mut dest_ptr: *mut u8, mut num_blocks: usize) {
+    //     // limiting recursion depth to a maximum of 2 recursive calls to try 
+    //     // to reduce memory usage
+    //     unsafe {
+    //         while num_blocks > 4 {
+    //             self.write_ks_blocks(dest_ptr, 4);
+    //             dest_ptr = dest_ptr.add(256);
+    //             num_blocks -= 4;
+    //         }
+    //         if num_blocks > 0 {
+    //             self.write_ks_blocks(dest_ptr, num_blocks);
+    //         }
+    //     }
+    // }
 }
 
 impl<R: Rounds, V: Variant> Backend<R, V> {

@@ -56,6 +56,7 @@ pub(crate) trait BackendType {
     unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize);
 
     #[cfg(feature = "rng")]
+    #[inline]
     /// Generates `num_blocks * 64` bytes and blindly writes them to `dest_ptr`
     /// 
     /// # Safety
