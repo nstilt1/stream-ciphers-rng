@@ -63,7 +63,6 @@ pub(crate) struct Backend<R: Rounds, V: Variant> {
     v: [__m256i; 3],
     ctr: [__m256i; N],
     results: [[__m256i; 4]; N],
-    block: usize,
     _pd: PhantomData<R>,
     _variant: PhantomData<V>
 }
@@ -74,7 +73,6 @@ impl<R: Rounds, V: Variant> Clone for Backend<R, V> {
             v: self.v,
             ctr: self.ctr,
             results: self.results,
-            block: self.block,
             _pd: self._pd,
             _variant: self._variant
         }
@@ -104,7 +102,6 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
                 v,
                 ctr,
                 results: [[_mm256_setzero_si256(); 4]; N],
-                block: 4,
                 _pd: PhantomData,
                 _variant: PhantomData
             }
@@ -121,7 +118,6 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
                 self.ctr[i] = c;
                 c = _mm256_add_epi32(c, _mm256_setr_epi32(2, 0, 0, 0, 2, 0, 0, 0));
             }
-            self.block = 4;
         }
     }
 
@@ -135,52 +131,40 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
         }
     }
     
-    //#[inline]
-    /// Generates `num_blocks` blocks and blindly writes them to `dest_ptr` recursively
+    #[inline]
+    /// Generates `num_blocks` blocks and blindly writes them to `dest_ptr`
     /// 
     /// # Safety
     /// `dest_ptr` must have at least `num_blocks * 64` bytes available to be overwritten, or else it 
     /// could result in a segmentation fault or undesired behavior
-    unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, mut num_blocks: usize) {
+    unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
+        debug_assert!(0 < num_blocks && num_blocks <= Self::PAR_BLOCKS, 
+            "Handling more than 4 blocks here with a while loop results in 1.6 cpb for the Cipher"
+        );
         let mut _block_ptr = dest_ptr as *mut __m128i;
-        //while num_blocks > 0 {
-        if self.block == Self::PAR_BLOCKS {
-            self.rounds();
-            self.block = 0;
+        self.rounds();
+        if num_blocks >= 2 {
+            extract_2_blocks!(_block_ptr, self.results[0]);
+            if num_blocks == 4 {
+                extract_2_blocks!(_block_ptr, self.results[1]);
+            } else if num_blocks == 3 {
+                extract_1_block!(_block_ptr, self.results[1], 0);
+            }
+        } else if num_blocks == 1 {
+            extract_1_block!(_block_ptr, self.results[0], 0);
         }
 
-        // if (self.block % 2 == 0) to check if either `extract_2_blocks` or `extract_first_block` can be used
-        if self.block & 0b01 == 0 {
-            if num_blocks >= 2 {
-                extract_2_blocks!(_block_ptr, self.results[self.block >> 1]);
-                self.block += 2;
-                //num_blocks -= 2;
-                self.write_ks_blocks(_block_ptr as *mut u8, num_blocks - 2);
-            } else if num_blocks == 1 {
-                extract_1_block!(_block_ptr, self.results[self.block >> 1], 0);
-                self.block += 1;
-                //num_blocks -= 1;
-            } // else: num_blocks == 0, recursion ends
-        } else if num_blocks > 0 {
-            // self.block is either 1 or 3
-            extract_1_block!(_block_ptr, self.results[self.block >> 1], 1);
-            self.block += 1;
-            //num_blocks -= 1;
-            self.write_ks_blocks(_block_ptr as *mut u8, num_blocks - 1);
-        } // else: num_blocks == 0, recursion ends
-        //}
+        self.increment_counter(Self::PAR_BLOCKS.min(num_blocks) as i32)
     }
 
     #[cfg(feature = "rng")]
     #[inline]
     fn rng_inner(&mut self, mut dest_ptr: *mut u8, mut num_blocks: usize) {
-        // limiting recursion depth to a maximum of 3 recursive calls to try 
-        // to reduce memory usage
         unsafe {
             while num_blocks > 4 {
                 self.write_ks_blocks(dest_ptr, 4);
-                dest_ptr = dest_ptr.add(256);
                 num_blocks -= 4;
+                dest_ptr = dest_ptr.add(256);
             }
             if num_blocks > 0 {
                 self.write_ks_blocks(dest_ptr, num_blocks)
@@ -248,8 +232,6 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
             }
             self.results[i][3] = _mm256_add_epi32(self.results[i][3], self.ctr[i]);
         }
-
-        self.increment_counter(Self::PAR_BLOCKS as i32);
     }
 }
 

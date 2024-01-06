@@ -128,7 +128,6 @@ struct Backend<R: Rounds, V: Variant> {
     state: [uint32x4_t; 4],
     ctrs: [uint32x4_t; 4],
     results: [[uint32x4_t; 4]; 4],
-    block: usize,
     _pd: PhantomData<R>,
     _variant: PhantomData<V>
 }
@@ -196,7 +195,6 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
                     [state[0], state[1], state[2], add64!(state[3], ctrs[1])],
                     [state[0], state[1], state[2], add64!(state[3], ctrs[2])],
                 ],
-                block: 4,
                 _pd: PhantomData,
                 _variant: PhantomData
             }
@@ -228,47 +226,35 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     /// overwritten, or else it could cause a segmentation fault and/or undesired 
     /// behavior
     unsafe fn write_ks_blocks(&mut self, mut dest_ptr: *mut u8, mut num_blocks: usize) {
-        let mut max_block_index: usize;
-        //while num_blocks > 0 {
-        if self.block >= Self::PAR_BLOCKS {
+        debug_assert!(0 < num_blocks && num_blocks >= Self::PAR_BLOCKS, "num_blocks must be in 0 < num_blocks <= 4");
+        while num_blocks > 0 {
             self.rounds();
-            self.block = 0;
-        }
-
-        // using a saturating add because this could overflow. Very small chance though
-        max_block_index = Self::PAR_BLOCKS.min(self.block.saturating_add(num_blocks));
-        for block in self.block..max_block_index {
-            // write blocks to pointer
-            for state_row in 0..4 {
-                vst1q_u8(
-                    dest_ptr.offset(state_row << 4),
-                    vreinterpretq_u8_u32(self.results[block][state_row as usize]),
-                );
+            for block in 0..num_blocks {
+                // write blocks to pointer
+                for state_row in 0..4 {
+                    vst1q_u8(
+                        dest_ptr.offset(state_row << 4),
+                        vreinterpretq_u8_u32(self.results[block][state_row as usize]),
+                    );
+                }
+                dest_ptr = dest_ptr.add(64);
             }
-            dest_ptr = dest_ptr.add(64);
-            //num_blocks -= 1;
+
+            self.increment_counter(num_blocks as i32);
         }
-        num_blocks -= max_block_index - self.block;
-        self.block = max_block_index;
-        if num_blocks > 0 {
-            self.write_ks_blocks(dest_ptr, num_blocks)
-        }
-        //}
     }
 
-    #[cfg(feature = "rng")]
     #[inline]
+    #[cfg(feature = "rng")]
     fn rng_inner(&mut self, mut dest_ptr: *mut u8, mut num_blocks: usize) {
-        // limiting recursion depth to a maximum of 2 recursive calls to try 
-        // to reduce memory usage
         unsafe {
             while num_blocks > 4 {
                 self.write_ks_blocks(dest_ptr, 4);
-                dest_ptr = dest_ptr.add(256);
                 num_blocks -= 4;
+                dest_ptr = dest_ptr.add(256);
             }
             if num_blocks > 0 {
-                self.write_ks_blocks(dest_ptr, num_blocks);
+                self.write_ks_blocks(dest_ptr, num_blocks)
             }
         }
     }
@@ -298,8 +284,6 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
                 self.results[block][3] = add64!(self.results[block][3], self.ctrs[block - 1]);
             }
         }
-        
-        self.increment_counter(Self::PAR_BLOCKS as i32);
     }
 }
 
