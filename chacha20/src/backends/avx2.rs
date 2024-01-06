@@ -15,9 +15,6 @@ use cipher::{StreamBackend, StreamClosure,
     ParBlocks, ParBlocksSizeUser, BlockSizeUser
 };
 
-#[cfg(feature = "zeroize")]
-use zeroize::Zeroize;
-
 /// Number of blocks processed in parallel.
 const PAR_BLOCKS: usize = 4;
 /// Number of `__m256i` to store parallel blocks.
@@ -98,12 +95,6 @@ where
     }
 
     state[12] = _mm256_extract_epi32(backend.ctr[0], 0) as u32;
-
-    #[cfg(feature = "zeroize")]
-    {
-        backend.v.zeroize();
-        backend.ctr.zeroize();
-    }
 }
 
 #[cfg(feature = "cipher")]
@@ -166,9 +157,6 @@ impl<R: Rounds> Backend<R> {
     unsafe fn write_par_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
         assert!(num_blocks <= PAR_BLOCKS, "num_blocks in avx2::write_par_ks_blocks must be <= 4");
 
-        #[cfg(feature = "zeroize")]
-        let mut vs = rounds::<R>(&self.v, &self.ctr);
-        #[cfg(not(feature = "zeroize"))]
         let vs = rounds::<R>(&self.v, &self.ctr);
         
         self.increment_counter(num_blocks as i32);
@@ -186,9 +174,6 @@ impl<R: Rounds> Backend<R> {
         }else if num_blocks == 1 {
             extract_1_block!(_block_ptr, vs[0]);
         }
-
-        #[cfg(feature = "zeroize")]
-        vs.zeroize();
     }
 }
 
