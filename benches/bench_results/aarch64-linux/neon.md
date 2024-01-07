@@ -1,8 +1,5 @@
-# Benchmarks for chacha20 using NEON
-These benches were ran on 12/16/2023 using a Raspberry Pi 4b.
-The results are compared against the soft implementation.
-This bench is compared against the last one, commit: 378303a
-This commit: 97cdfc5
+# Benchmarks for chacha20 using AVX2 and zeroize for the backends
+These benches were ran on 1/6/2024 using a Raspberry Pi Model 4b
 
 ## ChaCha20::apply_keystream()
 ```

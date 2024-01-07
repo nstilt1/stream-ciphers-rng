@@ -10,7 +10,7 @@ use core::arch::x86::*;
 use core::arch::x86_64::*;
 
 #[cfg(feature = "zeroize")]
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 #[cfg(feature = "cipher")]
 use cipher::{
@@ -22,6 +22,16 @@ struct Backend<R: Rounds> {
     v: [__m128i; 4],
     _pd: PhantomData<R>,
 }
+
+#[cfg(feature = "zeroize")]
+impl<R: Rounds> Drop for Backend<R> {
+    fn drop(&mut self) {
+        self.v.zeroize();
+    }
+}
+
+#[cfg(feature = "zeroize")]
+impl<R: Rounds> ZeroizeOnDrop for Backend<R> {}
 
 impl<R: Rounds> Backend<R> {
     #[inline]
@@ -84,9 +94,6 @@ where
     }
 
     state[12] = _mm_cvtsi128_si32(backend.v[3]) as u32;
-
-    #[cfg(feature = "zeroize")]
-    backend.v.zeroize();
 }
 
 impl<R: Rounds> Backend<R> {

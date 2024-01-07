@@ -1,4 +1,4 @@
-use crate::{Rounds, STATE_WORDS};
+use crate::{Rounds, STATE_WORDS, variants::Variant};
 
 #[cfg(feature = "cipher")]
 use crate::chacha::Block;
@@ -16,7 +16,7 @@ use cipher::{StreamBackend, StreamClosure,
 };
 
 #[cfg(feature = "zeroize")]
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// Number of blocks processed in parallel.
 const PAR_BLOCKS: usize = 4;
@@ -28,6 +28,17 @@ struct Backend<R: Rounds> {
     ctr: [__m256i; N],
     _pd: PhantomData<R>,
 }
+
+#[cfg(feature = "zeroize")]
+impl<R: Rounds> Drop for Backend<R> {
+    fn drop(&mut self) {
+        self.v.zeroize();
+        self.ctr.zeroize();
+    }
+}
+
+#[cfg(feature = "zeroize")]
+impl<R: Rounds> ZeroizeOnDrop for Backend<R> {}
 
 impl<R: Rounds> Backend<R> {
     #[inline]
@@ -98,12 +109,6 @@ where
     }
 
     state[12] = _mm256_extract_epi32(backend.ctr[0], 0) as u32;
-
-    #[cfg(feature = "zeroize")]
-    {
-        backend.v.zeroize();
-        backend.ctr.zeroize();
-    }
 }
 
 #[cfg(feature = "cipher")]
