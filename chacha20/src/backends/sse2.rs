@@ -59,6 +59,9 @@ impl<R: Rounds> Drop for Backend<R> {
     }
 }
 
+#[cfg(feature = "zeroize")]
+impl<R: Rounds> ZeroizeOnDrop for Backend<R> {}
+
 #[cfg(feature = "cipher")]
 impl<R: Rounds> BlockSizeUser for Backend<R> {
     type BlockSize = U64;
