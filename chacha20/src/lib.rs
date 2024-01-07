@@ -290,7 +290,7 @@ impl<R: Rounds, V: Variant> StreamCipherCore for ChaChaCore<R, V> {
     fn process_with_backend(&mut self, f: impl cipher::StreamClosure<BlockSize = Self::BlockSize>) {
         cfg_if! {
             if #[cfg(chacha20_force_soft)] {
-                f.call(&mut backends::soft::Backend(self));
+                f.call(self);
             } else if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
                 cfg_if! {
                     if #[cfg(chacha20_force_avx2)] {
@@ -312,7 +312,7 @@ impl<R: Rounds, V: Variant> StreamCipherCore for ChaChaCore<R, V> {
                                 backends::sse2::inner::<R, _>(&mut self.state, f);
                             }
                         } else {
-                            f.call(&mut backends::soft::Backend(self));
+                            f.call(self);
                         }
                     }
                 }
@@ -321,7 +321,7 @@ impl<R: Rounds, V: Variant> StreamCipherCore for ChaChaCore<R, V> {
                     backends::neon::inner::<R, _>(&mut self.state, f);
                 }
             } else {
-                f.call(&mut backends::soft::Backend(self));
+                f.call(self);
             }
         }
     }

@@ -26,7 +26,7 @@ use core::arch::x86::*;
 use core::arch::x86_64::*;
 
 #[cfg(feature = "zeroize")]
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// Number of blocks processed in parallel.
 const PAR_BLOCKS: usize = 4;
@@ -109,6 +109,17 @@ struct Backend<R: Rounds> {
     _pd: PhantomData<R>,
 }
 
+#[cfg(feature = "zeroize")]
+impl<R: Rounds> Drop for Backend<R> {
+    fn drop(&mut self) {
+        self.v.zeroize();
+        self.ctr.zeroize();
+    }
+}
+
+#[cfg(feature = "zeroize")]
+impl<R: Rounds> ZeroizeOnDrop for Backend<R> {}
+
 #[cfg(feature = "cipher")]
 impl<R: Rounds> BlockSizeUser for Backend<R> {
     type BlockSize = U64;
@@ -124,6 +135,9 @@ impl<R: Rounds> StreamBackend for Backend<R> {
     #[inline(always)]
     fn gen_ks_block(&mut self, block: &mut Block) {
         unsafe {
+            #[cfg(feature = "zeroize")]
+            let mut res = rounds::<R>(&self.v, &self.ctr);
+            #[cfg(not(feature = "zeroize"))]
             let res = rounds::<R>(&self.v, &self.ctr);
             for c in self.ctr.iter_mut() {
                 *c = _mm256_add_epi32(*c, _mm256_set_epi32(0, 0, 0, 1, 0, 0, 0, 1));
@@ -135,12 +149,18 @@ impl<R: Rounds> StreamBackend for Backend<R> {
             for i in 0..4 {
                 _mm_storeu_si128(block_ptr.add(i), res0[2 * i]);
             }
+
+            #[cfg(feature = "zeroize")]
+            res.zeroize();
         }
     }
 
     #[inline(always)]
     fn gen_par_ks_blocks(&mut self, blocks: &mut ParBlocks<Self>) {
         unsafe {
+            #[cfg(feature = "zeroize")]
+            let mut vs = rounds::<R>(&self.v, &self.ctr);
+            #[cfg(not(feature = "zeroize"))]
             let vs = rounds::<R>(&self.v, &self.ctr);
 
             let pb = PAR_BLOCKS as i32;
@@ -157,6 +177,8 @@ impl<R: Rounds> StreamBackend for Backend<R> {
                 }
                 block_ptr = block_ptr.add(8);
             }
+            #[cfg(feature = "zeroize")]
+            vs.zeroize();
         }
     }
 }
@@ -187,9 +209,7 @@ impl<R: Rounds> Backend<R> {
             }
 
             #[cfg(feature = "zeroize")]
-            {
-                vs.zeroize();
-            }
+            vs.zeroize();
         }
     }
 }

@@ -19,13 +19,23 @@ use cipher::{
 };
 
 #[cfg(feature = "zeroize")]
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 struct Backend<R: Rounds> {
     state: [uint32x4_t; 4],
     ctrs: [uint32x4_t; 4],
     _pd: PhantomData<R>,
 }
+
+#[cfg(feature = "zeroize")]
+impl<R: Rounds> Drop for Backend<R> {
+    fn drop(&mut self) {
+        self.state.zeroize();
+    }
+}
+
+#[cfg(feature = "zeroize")]
+impl<R: Rounds> ZeroizeOnDrop for Backend<R> {}
 
 impl<R: Rounds> Backend<R> {
     #[inline]
@@ -80,9 +90,6 @@ where
     backend.write_par_ks_blocks(buffer);
 
     vst1q_u32(core.state.as_mut_ptr().offset(12), backend.state[3]);
-
-    #[cfg(feature = "zeroize")]
-    backend.state.zeroize();
 }
 
 #[cfg(feature = "cipher")]
@@ -253,6 +260,9 @@ impl<R: Rounds> Backend<R> {
             dest_ptr = dest_ptr.add(64);
         }
         self.state[3] = add64!(self.state[3], self.ctrs[3]);
+
+        #[cfg(feature = "zeroize")]
+        blocks.zeroize();
     }
 }
 
