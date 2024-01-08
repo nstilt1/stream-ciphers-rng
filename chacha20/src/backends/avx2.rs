@@ -141,7 +141,7 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     /// # Safety
     /// `dest_ptr` must have at least `num_blocks * 64` bytes available to be overwritten, or else it 
     /// could result in a segmentation fault or undesired behavior
-    unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, mut num_blocks: usize) {
+    unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
         let mut _block_ptr = dest_ptr as *mut __m128i;
         //while num_blocks > 0 {
         if self.block == Self::PAR_BLOCKS {

@@ -87,7 +87,7 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
     }
 
     #[inline]
-    fn update_state(&mut self) {
+    pub(crate) fn update_state(&mut self) {
         cfg_if! {
             if #[cfg(chacha20_force_soft)] {
                 unsafe { (*self.inner.soft).update_state(&self.state) }
@@ -105,17 +105,6 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
                 }
             }
         }
-    }
-
-    #[inline]
-    pub(crate) fn get_block_pos_inner(&self) -> u32 {
-        self.state[12]
-    }
-
-    #[inline]
-    pub(crate) fn set_block_pos_inner(&mut self, pos: u32) {
-        self.state[12] = pos;
-        self.update_state();
     }
 
     #[inline]

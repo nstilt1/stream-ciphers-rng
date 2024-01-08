@@ -165,6 +165,19 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
     }
 }
 
+impl<R: Rounds> ChaChaCore<R, Ietf> {
+    /// Gets the block pos of the ChaCha Rng.
+    fn get_block_pos(&self) -> u32 {
+        self.state[12]
+    }
+
+    /// Sets the block pos of the ChaCha Rng.
+    fn set_block_pos(&mut self, pos: u32) {
+        self.state[12] = pos;
+        self.update_state()
+    }
+}
+
 // NB. this must remain consistent with some currently hard-coded numbers in this module
 const BUF_BLOCKS: u8 = BUFFER_SIZE as u8 >> 4;
 
@@ -414,9 +427,12 @@ macro_rules! impl_chacha_rng {
             #[inline]
             pub fn get_word_pos(&self) -> u64 {
                 let mut result =
-                    u64::from(self.core.get_block_pos_inner().wrapping_sub(BUF_BLOCKS.into())) << 4;
+                    u64::from(
+                        self.core.get_block_pos()
+                            .wrapping_sub(BUF_BLOCKS.into())
+                    ) << 4;
 
-                result += (self.index & 0x0F) as u64;
+                result += self.index as u64;
                 // eliminate bits above the 36th bit
                 result & 0xfffffffff
             }
@@ -436,7 +452,7 @@ macro_rules! impl_chacha_rng {
             #[inline]
             pub fn set_word_pos<W: Into<WordPosInput>>(&mut self, word_offset: W) {
                 let word_offset: WordPosInput = word_offset.into();
-                self.core.set_block_pos_inner(u32::from_le_bytes(word_offset.0[0..4].try_into().unwrap()));
+                self.core.set_block_pos(u32::from_le_bytes(word_offset.0[0..4].try_into().unwrap()));
 
                 // generate will increase block_pos by 4
                 self.generate_and_set((word_offset.0[4] & 0x0F) as usize);
@@ -925,6 +941,9 @@ mod tests {
 
         // Test block 2 by skipping block 0 and 1
         let mut rng1 = ChaChaRng::from_seed(seed.into());
+        // debugging word_pos
+        assert_eq!(rng1.core.get_block_pos(), 0);
+        assert_eq!(rng1.get_word_pos(), 0);
         for _ in 0..32 {
             rng1.next_u32();
         }
