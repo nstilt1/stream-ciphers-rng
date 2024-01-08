@@ -21,9 +21,22 @@ use super::BackendType;
 #[derive(Clone)]
 pub(crate) struct Backend<R: Rounds, V: Variant> {
     v: [__m128i; 4],
+    res: [__m128i; 4],
     _pd: PhantomData<R>,
     _variant: PhantomData<V>
 }
+
+#[cfg(feature = "zeroize")]
+use zeroize::Zeroize;
+
+#[cfg(feature = "zeroize")]
+impl<R: Rounds, V: Variant> Zeroize for Backend<R, V> {
+    fn zeroize(&mut self) {
+        self.v.zeroize();
+        self.res.zeroize();
+    }
+}
+
 
 impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     const PAR_BLOCKS: usize = 1;
@@ -37,6 +50,12 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
                     _mm_loadu_si128(state_ptr.add(1)),
                     _mm_loadu_si128(state_ptr.add(2)),
                     _mm_loadu_si128(state_ptr.add(3)),
+                ],
+                res: [
+                    _mm_setzero_si128(),
+                    _mm_setzero_si128(),
+                    _mm_setzero_si128(),
+                    _mm_setzero_si128()
                 ],
                 _pd: PhantomData,
                 _variant: PhantomData
@@ -66,11 +85,11 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
         let mut block_ptr = dest_ptr as *mut __m128i;
         for _i in 0..num_blocks {
-            let res = rounds::<R>(&self.v);
+            self.rounds();
             self.increment_counter(1);
 
             for i in 0..4 {
-                _mm_storeu_si128(block_ptr.add(i), res[i]);
+                _mm_storeu_si128(block_ptr.add(i), self.res[i]);
             }
             block_ptr = block_ptr.add(4);
         }
@@ -100,6 +119,19 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
         f.call(self);
         *state_counter = _mm_extract_epi32::<0>(self.v[3]) as u32;
     }
+
+    #[inline]
+    #[target_feature(enable = "sse2")]
+    unsafe fn rounds(&mut self) {
+        self.res = self.v;
+        for _ in 0..R::COUNT {
+            double_quarter_round(&mut self.res);
+        }
+
+        for i in 0..4 {
+            self.res[i] = _mm_add_epi32(self.res[i], self.v[i]);
+        }
+    }
 }
 
 #[cfg(feature = "cipher")]
@@ -113,20 +145,7 @@ impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
     }
 }
 
-#[inline]
-#[target_feature(enable = "sse2")]
-unsafe fn rounds<R: Rounds>(v: &[__m128i; 4]) -> [__m128i; 4] {
-    let mut res = *v;
-    for _ in 0..R::COUNT {
-        double_quarter_round(&mut res);
-    }
 
-    for i in 0..4 {
-        res[i] = _mm_add_epi32(res[i], v[i]);
-    }
-
-    res
-}
 
 #[inline]
 #[target_feature(enable = "sse2")]

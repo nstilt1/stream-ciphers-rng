@@ -3,7 +3,7 @@
 
 use core::marker::PhantomData;
 
-use crate::{variants::Variant, Rounds, STATE_WORDS, CONSTANTS};
+use crate::{variants::Variant, Rounds, STATE_WORDS};
 
 #[cfg(feature = "cipher")]
 use crate::chacha::Block;
@@ -16,18 +16,38 @@ use cipher::{
 
 use super::BackendType;
 
+#[cfg(feature = "zeroize")]
+use zeroize::Zeroize;
+
 use cfg_if::cfg_if;
 
 cfg_if! {
     if #[cfg(any(chacha20_force_soft, not(any(target_arch = "x86", target_arch = "x86_64", all(target_arch = "aarch64", target_feature = "neon")))))] {
+        use crate::CONSTANTS;
+
         #[cfg(feature = "cipher")]
         use cipher::{StreamCipherCore, StreamCipherSeekCore};
 
+        #[cfg(feature = "zeroize")]
+        use zeroize::ZeroizeOnDrop;
+        
         #[derive(Clone)]
         pub struct ChaChaCore<R: Rounds, V: Variant> {
             pub(crate) state: [u32; STATE_WORDS], 
             backend: Backend<R, V>
         }
+
+        #[cfg(feature = "zeroize")]
+        #[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
+        impl<R: Rounds, V: Variant> Drop for ChaChaCore<R, V> {
+            fn drop(&mut self) {
+                self.state.zeroize();
+            }
+        }
+
+        #[cfg(feature = "zeroize")]
+        #[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
+        impl<R: Rounds, V: Variant> ZeroizeOnDrop for ChaChaCore<R, V> {}
 
         impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
             pub fn new(key: &[u8; 32], iv: &[u8]) -> Self {
@@ -51,17 +71,6 @@ cfg_if! {
             #[inline]
             fn update_state(&mut self) {
                 self.backend.update_state(&self.state)
-            }
-
-            #[inline]
-            pub(crate) fn get_block_pos_inner(&self) -> u32 {
-                self.state[12]
-            }
-
-            #[inline]
-            pub(crate) fn set_block_pos_inner(&mut self, pos: u32) {
-                self.state[12] = pos;
-                self.update_state();
             }
 
             #[inline]
@@ -142,6 +151,13 @@ impl<R: Rounds, V: Variant> BlockSizeUser for Backend<R, V> {
 #[cfg(feature = "cipher")]
 impl<R: Rounds, V: Variant> ParBlocksSizeUser for Backend<R, V> {
     type ParBlocksSize = U1;
+}
+
+#[cfg(feature = "zeroize")]
+impl<R: Rounds, V: Variant> Zeroize for Backend<R, V> {
+    fn zeroize(&mut self) {
+        self.state.zeroize();
+    }
 }
 
 impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {

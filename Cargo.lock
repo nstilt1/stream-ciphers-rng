@@ -31,7 +31,7 @@ dependencies = [
  "cfg-if",
  "cipher",
  "cpufeatures",
- "hex-literal",
+ "hex-literal 0.4.1",
  "rand_chacha",
  "rand_core",
  "serde",
@@ -96,7 +96,7 @@ name = "hc-256"
 version = "0.5.0"
 dependencies = [
  "cipher",
- "hex-literal",
+ "hex-literal 0.3.4",
 ]
 
 [[package]]
@@ -104,6 +104,12 @@ name = "hex-literal"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ebdb29d2ea9ed0083cd8cece49bbd968021bd99b0849edb4a9a7ee0fdf6a4e0"
+
+[[package]]
+name = "hex-literal"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6fe2267d4ed49bc07b63801559be28c718ea06c4738b7a03c94df7386d2cde46"
 
 [[package]]
 name = "inout"
@@ -156,7 +162,7 @@ name = "rabbit"
 version = "0.4.1"
 dependencies = [
  "cipher",
- "hex-literal",
+ "hex-literal 0.3.4",
 ]
 
 [[package]]
@@ -183,7 +189,7 @@ name = "rc4"
 version = "0.1.0"
 dependencies = [
  "cipher",
- "hex-literal",
+ "hex-literal 0.3.4",
 ]
 
 [[package]]
@@ -197,7 +203,7 @@ name = "salsa20"
 version = "0.10.2"
 dependencies = [
  "cipher",
- "hex-literal",
+ "hex-literal 0.3.4",
 ]
 
 [[package]]
@@ -268,6 +274,6 @@ checksum = "9c8d87e72b64a3b4db28d11ce29237c246188f4f51057d65a7eab63b7987e423"
 
 [[package]]
 name = "zeroize"
-version = "1.6.0"
+version = "1.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a0956f1ba7c7909bfb66c2e9e4124ab6f6482560f6628b5aaeba39207c9aad9"
+checksum = "525b4ec142c6b68a2d10f01f7bbf6755599ca3f81ea53b8431b7dd348f5fdb2d"

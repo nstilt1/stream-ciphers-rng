@@ -15,15 +15,15 @@ use cipher::{StreamBackend,
     ParBlocks, ParBlocksSizeUser, BlockSizeUser, StreamClosure
 };
 
+#[cfg(feature = "zeroize")]
+use zeroize::Zeroize;
+
 use super::BackendType;
 
 /// Number of blocks processed in parallel.
 const PAR_BLOCKS: usize = 4;
 /// Number of `__m256i` to store parallel blocks.
 const N: usize = PAR_BLOCKS / 2;
-
-/// A constant for applying masks to SIMD registers
-const I32_ONES: i32 = 0xFFFF_FFFFu32 as i32;
 
 /// Extracts a single block of output from a [__m256i; 4].
 /// ### Parameters
@@ -59,10 +59,11 @@ macro_rules! extract_2_blocks {
     };
 }
 
+#[derive(Clone)]
 pub(crate) struct Backend<R: Rounds, V: Variant> {
     v: [__m256i; 3],
     ctr: [__m256i; N],
-    results: [[__m256i; 4]; N],
+    pub(crate) results: [[__m256i; 4]; N],
     block: usize,
     /// not sure how else to keep up with the counter for the Cipher
     /// it seems to evade my usage of self.block within `inner` to 
@@ -72,17 +73,12 @@ pub(crate) struct Backend<R: Rounds, V: Variant> {
     _variant: PhantomData<V>
 }
 
-impl<R: Rounds, V: Variant> Clone for Backend<R, V> {
-    fn clone(&self) -> Self {
-        Self {
-            v: self.v,
-            ctr: self.ctr,
-            results: self.results,
-            block: self.block,
-            counter: self.counter,
-            _pd: self._pd,
-            _variant: self._variant
-        }
+#[cfg(feature = "zeroize")]
+impl<R: Rounds, V: Variant> Zeroize for Backend<R, V> {
+    fn zeroize(&mut self) {
+        self.v.zeroize();
+        self.ctr.zeroize();
+        self.counter.zeroize();
     }
 }
 
@@ -233,12 +229,7 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
         F: StreamClosure<BlockSize = U64>,
         V: Variant
     {
-        // determine how many blocks were written using `self.block` (this didn't work)
-        // let initial_index = self.block as u32;
         f.call(self);
-        // let final_index = self.block as u32;
-
-        // *state_counter = state_counter.wrapping_add(4 - initial_index + final_index);
         *state_counter = self.counter;
     }
 

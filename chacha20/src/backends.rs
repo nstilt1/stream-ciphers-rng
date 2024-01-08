@@ -5,9 +5,6 @@ use cipher::{consts::U64, StreamBackend, BlockSizeUser, ParBlocksSizeUser};
 
 use crate::{STATE_WORDS, Rounds, Variant};
 
-#[cfg(feature = "zeroize")]
-use zeroize::{Zeroize, ZeroizeOnDrop};
-
 pub(crate) mod soft;
 
 cfg_if! {
@@ -73,15 +70,3 @@ pub(crate) trait BackendType {
 impl<R: Rounds, V: Variant> BlockSizeUser for ChaChaCore<R, V> {
     type BlockSize = U64;
 }
-
-#[cfg(feature = "zeroize")]
-#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
-impl<R: Rounds, V: Variant> Drop for ChaChaCore<R, V> {
-    fn drop(&mut self) {
-        self.state.zeroize();
-    }
-}
-
-#[cfg(feature = "zeroize")]
-#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
-impl<R: Rounds, V: Variant> ZeroizeOnDrop for ChaChaCore<R, V> {}

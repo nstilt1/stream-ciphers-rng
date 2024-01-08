@@ -17,7 +17,6 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::{
-    backends::BackendType,
     variants::{Ietf, Variant},
     ChaChaCore, Rounds, R12, R20, R8,
 };
@@ -132,25 +131,25 @@ use cfg_if::cfg_if;
 // it will still function, but it is not optimal
 cfg_if! {
     if #[cfg(chacha20_force_soft)] {
-        const BUFFER_SIZE: usize = 16;
+        const BUFFER_SIZE: usize = BLOCK_WORDS as usize;
     } else if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
         cfg_if! {
             if #[cfg(chacha20_force_avx2)] {
-                const BUFFER_SIZE: usize = 64;
+                const BUFFER_SIZE: usize = BLOCK_WORDS as usize * 4;
             } else if #[cfg(chacha20_force_sse2)] {
-                const BUFFER_SIZE: usize = 16;
+                const BUFFER_SIZE: usize = BLOCK_WORDS as usize;
             } else if #[cfg(target_feature = "avx2")] {
-                const BUFFER_SIZE: usize = 64;
+                const BUFFER_SIZE: usize = BLOCK_WORDS as usize * 4;
             } else if #[cfg(target_feature = "sse2")] {
-                const BUFFER_SIZE: usize = 16;
+                const BUFFER_SIZE: usize = BLOCK_WORDS as usize;
             } else {
-                const BUFFER_SIZE: usize = 16;
+                const BUFFER_SIZE: usize = BLOCK_WORDS as usize;
             }
         }
     } else if #[cfg(all(chacha20_force_neon, target_arch = "aarch64", target_feature = "neon"))] {
-        const BUFFER_SIZE: usize = 64;
+        const BUFFER_SIZE: usize = BLOCK_WORDS as usize * 4;
     } else {
-        const BUFFER_SIZE: usize = 16;
+        const BUFFER_SIZE: usize = BLOCK_WORDS as usize;
     }
 }
 

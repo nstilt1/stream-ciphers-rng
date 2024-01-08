@@ -17,11 +17,26 @@ use cipher::{
     StreamCipherSeekCore
 };
 
+#[cfg(feature = "zeroize")]
+use zeroize::{Zeroize, ZeroizeOnDrop};
+
 #[derive(Clone)]
 pub struct ChaChaCore<R: Rounds, V: Variant> {
     pub(crate) state: [u32; STATE_WORDS],
     backend: Backend<R, V>
 }
+
+#[cfg(feature = "zeroize")]
+impl<R: Rounds, V: Variant> Drop for ChaChaCore<R, V> {
+    fn drop(&mut self) {
+        self.state.zeroize();
+        self.backend.zeroize();
+    }
+}
+
+#[cfg(feature = "zeroize")]
+#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
+impl<R: Rounds, V: Variant> ZeroizeOnDrop for ChaChaCore<R, V> {}
 
 impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
     #[inline]
@@ -122,6 +137,15 @@ struct Backend<R: Rounds, V: Variant> {
     _variant: PhantomData<V>
 }
 
+#[cfg(feature = "zeroize")]
+#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
+impl<R: Rounds, V: Variant> Zeroize for Backend<R, V> {
+    fn zeroize(&mut self) {
+        self.state.zeroize();
+        self.results.zeroize();
+    }
+}
+
 macro_rules! add64 {
     ($a:expr, $b:expr) => {
         vreinterpretq_u32_u64(vaddq_u64(
@@ -197,6 +221,7 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
         unsafe {
             self.state[3] = vld1q_u32(state.as_ptr().offset(12));
         }
+        self.block = 4;
     }
 
     #[inline]
@@ -217,15 +242,13 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     /// overwritten, or else it could cause a segmentation fault and/or undesired 
     /// behavior
     unsafe fn write_ks_blocks(&mut self, mut dest_ptr: *mut u8, mut num_blocks: usize) {
-        let mut max_block_index: usize;
-        //while num_blocks > 0 {
         if self.block >= Self::PAR_BLOCKS {
             self.rounds();
             self.block = 0;
         }
 
         // using a saturating add because this could overflow. Very small chance though
-        max_block_index = Self::PAR_BLOCKS.min(self.block.saturating_add(num_blocks));
+        let max_block_index = Self::PAR_BLOCKS.min(self.block.saturating_add(num_blocks));
         for block in self.block..max_block_index {
             // write blocks to pointer
             for state_row in 0..4 {
@@ -235,14 +258,12 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
                 );
             }
             dest_ptr = dest_ptr.add(64);
-            //num_blocks -= 1;
         }
         num_blocks -= max_block_index - self.block;
         self.block = max_block_index;
         if num_blocks > 0 {
             self.write_ks_blocks(dest_ptr, num_blocks)
         }
-        //}
     }
 
     #[cfg(feature = "rng")]
