@@ -114,9 +114,6 @@
 
 #[cfg(feature = "cipher")]
 pub use cipher;
-#[cfg(feature = "cipher")]
-use cipher::StreamCipherSeekCore;
-
 
 pub(crate) mod backends;
 #[cfg(feature = "cipher")]
@@ -130,7 +127,7 @@ mod xchacha;
 
 mod variants;
 
-use backends::{ChaChaCore};
+use backends::ChaChaCore;
 
 use variants::Variant;
 

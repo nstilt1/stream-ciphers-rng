@@ -30,7 +30,7 @@ cfg_if! {
 
         #[cfg(feature = "zeroize")]
         use zeroize::ZeroizeOnDrop;
-        
+
         #[derive(Clone)]
         pub struct ChaChaCore<R: Rounds, V: Variant> {
             pub(crate) state: [u32; STATE_WORDS], 
@@ -130,7 +130,7 @@ cfg_if! {
 
             /// Generate output, overwriting data already in the buffer.
             #[inline]
-            fn process_with_backend(&mut self, f: impl cipher::StreamClosure<BlockSize = U64>) {
+            fn process_with_backend(&mut self, f: impl StreamClosure<BlockSize = U64>) {
                 self.backend.inner(&mut self.state[12], f)
             }
         }

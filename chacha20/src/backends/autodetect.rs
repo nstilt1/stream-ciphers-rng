@@ -2,7 +2,7 @@
 //! fallback to a portable version when they're unavailable.
 
 use super::{avx2, soft, sse2};
-use crate::{Rounds, STATE_WORDS, CONSTANTS, variants::Variant, backends::BackendType, StreamCipherSeekCore};
+use crate::{Rounds, STATE_WORDS, CONSTANTS, variants::Variant, backends::BackendType};
 use core::mem::ManuallyDrop;
 use cfg_if::cfg_if;
 
@@ -74,7 +74,7 @@ impl<R: Rounds, V: Variant> Drop for ChaChaCore<R, V> {
 impl<R: Rounds, V: Variant> ZeroizeOnDrop for ChaChaCore<R, V> {}
 
 #[cfg(feature = "cipher")]
-use cipher::{consts::U64, StreamCipherCore};
+use cipher::{consts::U64, StreamCipherCore, StreamCipherSeekCore};
 
 
 impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
