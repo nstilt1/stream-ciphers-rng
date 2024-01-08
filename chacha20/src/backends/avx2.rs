@@ -64,6 +64,10 @@ pub(crate) struct Backend<R: Rounds, V: Variant> {
     ctr: [__m256i; N],
     results: [[__m256i; 4]; N],
     block: usize,
+    /// not sure how else to keep up with the counter for the Cipher
+    /// it seems to evade my usage of self.block within `inner` to 
+    /// measure it
+    counter: u32,
     _pd: PhantomData<R>,
     _variant: PhantomData<V>
 }
@@ -75,6 +79,7 @@ impl<R: Rounds, V: Variant> Clone for Backend<R, V> {
             ctr: self.ctr,
             results: self.results,
             block: self.block,
+            counter: self.counter,
             _pd: self._pd,
             _variant: self._variant
         }
@@ -105,6 +110,7 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
                 ctr,
                 results: [[_mm256_setzero_si256(); 4]; N],
                 block: 4,
+                counter: 0,
                 _pd: PhantomData,
                 _variant: PhantomData
             }
@@ -122,6 +128,7 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
                 c = _mm256_add_epi32(c, _mm256_setr_epi32(2, 0, 0, 0, 2, 0, 0, 0));
             }
             self.block = 4;
+            self.counter = state[12]
         }
     }
 
@@ -143,7 +150,7 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     /// could result in a segmentation fault or undesired behavior
     unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
         let mut _block_ptr = dest_ptr as *mut __m128i;
-        //while num_blocks > 0 {
+        
         if self.block == Self::PAR_BLOCKS {
             self.rounds();
             self.block = 0;
@@ -154,21 +161,17 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
             if num_blocks >= 2 {
                 extract_2_blocks!(_block_ptr, self.results[self.block >> 1]);
                 self.block += 2;
-                //num_blocks -= 2;
                 self.write_ks_blocks(_block_ptr as *mut u8, num_blocks - 2);
             } else if num_blocks == 1 {
                 extract_1_block!(_block_ptr, self.results[self.block >> 1], 0);
                 self.block += 1;
-                //num_blocks -= 1;
             } // else: num_blocks == 0, recursion ends
         } else if num_blocks > 0 {
             // self.block is either 1 or 3
             extract_1_block!(_block_ptr, self.results[self.block >> 1], 1);
             self.block += 1;
-            //num_blocks -= 1;
             self.write_ks_blocks(_block_ptr as *mut u8, num_blocks - 1);
         } // else: num_blocks == 0, recursion ends
-        //}
     }
 
     #[cfg(feature = "rng")]
@@ -185,6 +188,7 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
             if num_blocks > 0 {
                 self.write_ks_blocks(dest_ptr, num_blocks)
             }
+            self.counter = self.counter.wrapping_add(num_blocks as u32);
         }
     }
 }
@@ -206,6 +210,7 @@ impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
         unsafe {
             self.write_ks_blocks(dest_ptr.as_mut_ptr(), 1);
         }
+        self.counter += 1;
     }
 
     #[inline(always)]
@@ -214,6 +219,7 @@ impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
         unsafe {
             self.write_ks_blocks(blocks.as_mut_ptr() as *mut u8, 4);
         }
+        self.counter += 4;
     }
 }
 
@@ -227,8 +233,13 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
         F: StreamClosure<BlockSize = U64>,
         V: Variant
     {
+        // determine how many blocks were written using `self.block` (this didn't work)
+        // let initial_index = self.block as u32;
         f.call(self);
-        *state_counter = _mm256_extract_epi32::<0>(self.ctr[0]) as u32;
+        // let final_index = self.block as u32;
+
+        // *state_counter = state_counter.wrapping_add(4 - initial_index + final_index);
+        *state_counter = self.counter;
     }
 
     #[inline]

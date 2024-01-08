@@ -94,6 +94,21 @@ mod chacha20test {
         cipher.apply_keystream(&mut buf);
         assert_eq!(&buf[..], &CIPHERTEXT[..]);
     }
+
+    #[test]
+    fn chacha20_seeking() {
+        use cipher::StreamCipherSeek;
+        let mut cipher = ChaCha20::new(&KEY.into(), &IV.into());
+        let mut buf = [0u8; 6000];
+        assert_eq!(cipher.current_pos::<usize>(), 0);
+        // cipher.apply_keystream(&mut buf[0..128]);
+        // assert_eq!(cipher.current_pos::<usize>(), 128);
+        // cipher.apply_keystream(&mut buf[0..256]);
+        // assert_eq!(cipher.current_pos::<usize>(), 384);
+
+        cipher.apply_keystream(&mut buf);
+        assert_eq!(cipher.current_pos::<usize>(), buf.len());
+    }
 }
 
 #[rustfmt::skip]
