@@ -14,10 +14,10 @@ use cipher::{
     BlockSizeUser, ParBlocksSizeUser, StreamBackend, StreamClosure
 };
 
-use super::{BackendType};
+use super::BackendType;
 
 #[cfg(feature = "zeroize")]
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use cfg_if::cfg_if;
 
@@ -27,9 +27,6 @@ cfg_if! {
 
         #[cfg(feature = "cipher")]
         use cipher::{StreamCipherCore, StreamCipherSeekCore};
-
-        #[cfg(feature = "zeroize")]
-        use zeroize::ZeroizeOnDrop;
 
         #[derive(Clone)]
         pub struct ChaChaCore<R: Rounds, V: Variant> {
@@ -51,6 +48,14 @@ cfg_if! {
         #[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
         impl<R: Rounds, V: Variant> ZeroizeOnDrop for ChaChaCore<R, V> {}
 
+        #[cfg(feature = "zeroize")]
+        #[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
+        impl<R: Rounds, V: Variant> Zeroize for ChaChaCore<R, V> {
+            fn zeroize(&mut self) {
+                self.backend.zeroize();
+            }
+        }
+
         impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
             pub fn new(key: &[u8; 32], iv: &[u8]) -> Self {
                 let mut state = [0u32; STATE_WORDS];
@@ -71,14 +76,16 @@ cfg_if! {
             }
 
             #[inline]
-            fn update_state() {
+            pub(crate) fn update_state(&mut self) {
                 self.backend.update_state(&self.state)
             }
 
             #[inline]
             #[cfg(feature = "rng")]
             pub(crate) fn rng_inner(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
-                self.backend.write_ks_blocks(num_blocks);
+                unsafe {
+                    self.backend.write_ks_blocks(dest_ptr, num_blocks);
+                }
                 self.state[12] = self.state[12].wrapping_add(num_blocks as u32);
             }
         }
@@ -94,7 +101,7 @@ cfg_if! {
             /// Generate output, overwriting data already in the buffer.
             #[inline]
             fn process_with_backend(&mut self, f: impl StreamClosure<BlockSize = U64>) {
-                f.call(self.backend);
+                f.call(&mut self.backend);
                 self.state[12] = self.backend.state[12]
             }
         }
@@ -104,8 +111,17 @@ cfg_if! {
 #[derive(Clone)]
 pub(crate) struct Backend<R: Rounds, V: Variant>{
     state: [u32; 16],
+    results: [u32; 16],
     _r: PhantomData<R>,
     _variant: PhantomData<V>
+}
+
+#[cfg(feature = "zeroize")]
+#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
+impl<R: Rounds, V: Variant> Zeroize for Backend<R, V> {
+    fn zeroize(&mut self) {
+        self.results.zeroize();
+    }
 }
 
 #[cfg(feature = "cipher")]
@@ -117,19 +133,13 @@ impl<R: Rounds, V: Variant> ParBlocksSizeUser for Backend<R, V> {
     type ParBlocksSize = U1;
 }
 
-#[cfg(feature = "zeroize")]
-impl<R: Rounds, V: Variant> Zeroize for Backend<R, V> {
-    fn zeroize(&mut self) {
-        self.state.zeroize();
-    }
-}
-
 impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     const PAR_BLOCKS: usize = 1;
 
     fn new(state: &[u32; STATE_WORDS]) -> Self {
         Self {
             state: *state,
+            results: [0u32; 16],
             _r: PhantomData,
             _variant: PhantomData
         }
@@ -150,10 +160,10 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
         let mut block_ptr = dest_ptr as *mut u32;
         for _i in 0..num_blocks {
-            let res = run_rounds::<R>(&self.state);
+            self.run_rounds();
             self.increment_counter(1);
 
-            for val in res.iter() {
+            for val in self.results.iter() {
                 block_ptr.write_unaligned(val.to_le());
                 block_ptr = block_ptr.add(1);
             }
@@ -192,28 +202,29 @@ impl<'a, R: Rounds, V: Variant> Backend<R, V> {
     }
 }
 
-#[inline(always)]
-fn run_rounds<R: Rounds>(state: &[u32; STATE_WORDS]) -> [u32; STATE_WORDS] {
-    let mut res = *state;
+impl<R: Rounds, V: Variant> Backend<R, V> {
+    #[inline(always)]
+    fn run_rounds(&mut self) {
+        self.results = self.state;
 
-    for _ in 0..R::COUNT {
-        // column rounds
-        quarter_round(0, 4, 8, 12, &mut res);
-        quarter_round(1, 5, 9, 13, &mut res);
-        quarter_round(2, 6, 10, 14, &mut res);
-        quarter_round(3, 7, 11, 15, &mut res);
+        for _ in 0..R::COUNT {
+            // column rounds
+            quarter_round(0, 4, 8, 12, &mut self.results);
+            quarter_round(1, 5, 9, 13, &mut self.results);
+            quarter_round(2, 6, 10, 14, &mut self.results);
+            quarter_round(3, 7, 11, 15, &mut self.results);
 
-        // diagonal rounds
-        quarter_round(0, 5, 10, 15, &mut res);
-        quarter_round(1, 6, 11, 12, &mut res);
-        quarter_round(2, 7, 8, 13, &mut res);
-        quarter_round(3, 4, 9, 14, &mut res);
+            // diagonal rounds
+            quarter_round(0, 5, 10, 15, &mut self.results);
+            quarter_round(1, 6, 11, 12, &mut self.results);
+            quarter_round(2, 7, 8, 13, &mut self.results);
+            quarter_round(3, 4, 9, 14, &mut self.results);
+        }
+
+        for (s1, s0) in self.results.iter_mut().zip(self.state.iter()) {
+            *s1 = s1.wrapping_add(*s0);
+        }
     }
-
-    for (s1, s0) in res.iter_mut().zip(state.iter()) {
-        *s1 = s1.wrapping_add(*s0);
-    }
-    res
 }
 
 /// The ChaCha20 quarter round function
@@ -234,3 +245,15 @@ fn quarter_round(a: usize, b: usize, c: usize, d: usize, state: &mut [u32; STATE
     state[b] ^= state[c];
     state[b] = state[b].rotate_left(7);
 }
+
+#[cfg(feature = "zeroize")]
+#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
+impl<R: Rounds, V: Variant> Drop for Backend<R, V> {
+    fn drop(&mut self) {
+        self.state.zeroize();
+    }
+}
+
+#[cfg(feature = "zeroize")]
+#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
+impl<R: Rounds, V: Variant> ZeroizeOnDrop for Backend<R, V> {}
