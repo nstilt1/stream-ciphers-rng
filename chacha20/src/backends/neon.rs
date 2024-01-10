@@ -27,10 +27,10 @@ pub struct ChaChaCore<R: Rounds, V: Variant> {
 }
 
 #[cfg(feature = "zeroize")]
+#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
 impl<R: Rounds, V: Variant> Drop for ChaChaCore<R, V> {
     fn drop(&mut self) {
         self.state.zeroize();
-        self.backend.zeroize();
     }
 }
 
@@ -102,10 +102,21 @@ struct Backend<R: Rounds, V: Variant> {
 
 #[cfg(feature = "zeroize")]
 #[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
+impl<R: Rounds, V: Variant> Drop for Backend<R, V> {
+    fn drop(&mut self) {
+        self.state.zeroize();
+    }
+}
+
+#[cfg(feature = "zeroize")]
+#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
+impl<R: Rounds, V: Variant> ZeroizeOnDrop for Backend<R, V> {}
+
+#[cfg(feature = "zeroize")]
+#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
 impl<R: Rounds, V: Variant> Zeroize for Backend<R, V> {
     fn zeroize(&mut self) {
-        self.state.zeroize();
-        self.results.zeroize();
+        self.results.zeroize()
     }
 }
 

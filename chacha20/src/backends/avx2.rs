@@ -16,7 +16,7 @@ use cipher::{StreamBackend,
 };
 
 #[cfg(feature = "zeroize")]
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use super::BackendType;
 
@@ -74,11 +74,21 @@ pub(crate) struct Backend<R: Rounds, V: Variant> {
 }
 
 #[cfg(feature = "zeroize")]
-impl<R: Rounds, V: Variant> Zeroize for Backend<R, V> {
-    fn zeroize(&mut self) {
+impl<R: Rounds, V: Variant> Drop for Backend<R, V> {
+    fn drop(&mut self) {
         self.v.zeroize();
         self.ctr.zeroize();
         self.counter.zeroize();
+    }
+}
+
+#[cfg(feature = "zeroize")]
+impl<R: Rounds, V: Variant> ZeroizeOnDrop for Backend<R, V> {}
+
+#[cfg(feature = "zeroize")]
+impl<R: Rounds, V: Variant> Zeroize for Backend<R, V> {
+    fn zeroize(&mut self) {
+        self.results.zeroize();
     }
 }
 

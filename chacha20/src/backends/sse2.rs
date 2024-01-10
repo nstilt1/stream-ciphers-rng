@@ -27,13 +27,24 @@ pub(crate) struct Backend<R: Rounds, V: Variant> {
 }
 
 #[cfg(feature = "zeroize")]
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 #[cfg(feature = "zeroize")]
+impl<R: Rounds, V: Variant> Drop for Backend<R, V> {
+    fn drop(&mut self) {
+        self.v.zeroize();
+    }
+}
+
+#[cfg(feature = "zeroize")]
+#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
+impl<R: Rounds, V: Variant> ZeroizeOnDrop for Backend<R, V> {}
+
+#[cfg(feature = "zeroize")]
+#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
 impl<R: Rounds, V: Variant> Zeroize for Backend<R, V> {
     fn zeroize(&mut self) {
-        self.v.zeroize();
-        self.res.zeroize();
+        self.res.zeroize()
     }
 }
 

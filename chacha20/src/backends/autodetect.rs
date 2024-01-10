@@ -25,57 +25,9 @@ union Inner<R: Rounds, V: Variant> {
     sse2: ManuallyDrop<sse2::Backend<R, V>>,
     soft: ManuallyDrop<soft::Backend<R, V>>,
 }
-#[cfg(feature = "zeroize")]
-#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
-/// I'm not entirely sure if `ManuallyDrop` values need to have `ManuallyDrop::drop` called
-impl<R: Rounds, V: Variant> Drop for ChaChaCore<R, V> {
-    fn drop(&mut self) {
-        self.state.zeroize();
-        cfg_if! {
-            if #[cfg(chacha20_force_soft)] {
-                unsafe { 
-                    (*self.inner.soft).zeroize(); 
-                    ManuallyDrop::drop(&mut self.inner.soft)
-                }
-            } else if #[cfg(chacha20_force_avx2)] {
-                unsafe { 
-                    (*self.inner.avx2).zeroize();
-                    ManuallyDrop::drop(&mut self.inner.avx2)
-                }
-            } else if #[cfg(chacha20_force_sse2)] {
-                unsafe { 
-                    (*self.inner.sse2).zeroize();
-                    ManuallyDrop::drop(&mut self.inner.sse2)
-                }
-            } else {
-                if self.avx2_token.get() {
-                    unsafe { 
-                        (*self.inner.avx2).zeroize();
-                        ManuallyDrop::drop(&mut self.inner.avx2)
-                    }
-                } else if self.sse2_token.get() {
-                    unsafe { 
-                        (*self.inner.sse2).zeroize();
-                        ManuallyDrop::drop(&mut self.inner.sse2) 
-                    }
-                } else {
-                    unsafe { 
-                        (*self.inner.soft).zeroize();
-                        ManuallyDrop::drop(&mut self.inner.soft)
-                    }
-                }
-            }
-        }
-    }
-}
-
-#[cfg(feature = "zeroize")]
-#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
-impl<R: Rounds, V: Variant> ZeroizeOnDrop for ChaChaCore<R, V> {}
 
 #[cfg(feature = "cipher")]
 use cipher::{consts::U64, StreamCipherCore, StreamCipherSeekCore};
-
 
 impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
     /// Initialize ChaCha core function with the given key size, IV, and
@@ -254,3 +206,82 @@ impl<R: Rounds, V: Variant> Clone for ChaChaCore<R, V> {
         }
     }
 }
+
+#[cfg(feature = "zeroize")]
+#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
+/// I'm not entirely sure if `ManuallyDrop` values need to have `ManuallyDrop::drop` called
+impl<R: Rounds, V: Variant> Zeroize for ChaChaCore<R, V> {
+    fn zeroize(&mut self) {
+        cfg_if! {
+            if #[cfg(chacha20_force_soft)] {
+                unsafe { 
+                    (*self.inner.soft).zeroize(); 
+                }
+            } else if #[cfg(chacha20_force_avx2)] {
+                unsafe { 
+                    (*self.inner.avx2).zeroize();
+                }
+            } else if #[cfg(chacha20_force_sse2)] {
+                unsafe { 
+                    (*self.inner.sse2).zeroize();
+                }
+            } else {
+                if self.avx2_token.get() {
+                    unsafe { 
+                        (*self.inner.avx2).zeroize();
+                    }
+                } else if self.sse2_token.get() {
+                    unsafe { 
+                        (*self.inner.sse2).zeroize();
+                    }
+                } else {
+                    unsafe { 
+                        (*self.inner.soft).zeroize();
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "zeroize")]
+#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
+/// I'm not entirely sure if `ManuallyDrop` values need to have `ManuallyDrop::drop` called
+impl<R: Rounds, V: Variant> Drop for ChaChaCore<R, V> {
+    fn drop(&mut self) {
+        self.state.zeroize();
+        cfg_if! {
+            if #[cfg(chacha20_force_soft)] {
+                unsafe { 
+                    ManuallyDrop::drop(&mut self.inner.soft)
+                }
+            } else if #[cfg(chacha20_force_avx2)] {
+                unsafe { 
+                    ManuallyDrop::drop(&mut self.inner.avx2)
+                }
+            } else if #[cfg(chacha20_force_sse2)] {
+                unsafe { 
+                    ManuallyDrop::drop(&mut self.inner.sse2)
+                }
+            } else {
+                if self.avx2_token.get() {
+                    unsafe { 
+                        ManuallyDrop::drop(&mut self.inner.avx2)
+                    }
+                } else if self.sse2_token.get() {
+                    unsafe { 
+                        ManuallyDrop::drop(&mut self.inner.sse2) 
+                    }
+                } else {
+                    unsafe { 
+                        ManuallyDrop::drop(&mut self.inner.soft)
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "zeroize")]
+#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
+impl<R: Rounds, V: Variant> ZeroizeOnDrop for ChaChaCore<R, V> {}
