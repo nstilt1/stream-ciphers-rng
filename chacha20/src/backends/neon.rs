@@ -3,7 +3,7 @@
 //! Adapted from the Crypto++ `chacha_simd` implementation by Jack Lloyd and
 //! Jeffrey Walton (public domain).
 
-use crate::{Rounds, STATE_WORDS, CONSTANTS, Variant, backends::BackendType};
+use crate::{Rounds, STATE_WORDS, CONSTANTS, Variant, backends::BackendType, impl_chacha_core};
 use core::{arch::aarch64::*, marker::PhantomData};
 
 #[cfg(feature = "cipher")]
@@ -65,50 +65,13 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
 
     #[inline]
     #[cfg(feature = "rng")]
-    pub(crate) fn set_nonce(&mut self, nonce: [u32; 3]) {
-        self.state[13..16].copy_from_slice(&nonce);
-        self.update_state()
-    }
-
-    #[inline]
-    #[cfg(feature = "rng")]
-    pub(crate) fn get_nonce(&self) -> [u32; 3] {
-        let mut result = [0u32; 3];
-        result.copy_from_slice(&self.state[13..16]);
-        result
-    }
-
-    #[inline]
-    #[cfg(feature = "rng")]
-    pub(crate) fn get_seed(&self) -> [u32; 8] {
-        let mut result = [0u32; 8];
-        result.copy_from_slice(&self.state[4..12]);
-        result
-    }
-
-    #[inline]
-    #[cfg(feature = "rng")]
     pub(crate) fn rng_inner(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
         self.backend.rng_inner(dest_ptr, num_blocks);
         self.state[12] = self.state[12].wrapping_add(num_blocks as u32);
     }
 }
 
-#[cfg(feature = "cipher")]
-impl<R: Rounds, V: Variant> StreamCipherSeekCore for ChaChaCore<R, V> {
-    type Counter = u32;
-
-    #[inline(always)]
-    fn get_block_pos(&self) -> Self::Counter {
-        self.state[12]
-    }
-
-    #[inline(always)]
-    fn set_block_pos(&mut self, pos: Self::Counter) {
-        self.state[12] = pos;
-        self.update_state();
-    }
-}
+impl_chacha_core!();
 
 #[cfg(feature = "cipher")]
 impl<'a, R: Rounds, V: Variant> StreamCipherCore for ChaChaCore<R, V> {

@@ -14,7 +14,7 @@ use cipher::{
     BlockSizeUser, ParBlocksSizeUser, StreamBackend, StreamClosure
 };
 
-use super::BackendType;
+use super::{BackendType};
 
 #[cfg(feature = "zeroize")]
 use zeroize::Zeroize;
@@ -23,7 +23,7 @@ use cfg_if::cfg_if;
 
 cfg_if! {
     if #[cfg(any(chacha20_force_soft, not(any(target_arch = "x86", target_arch = "x86_64", all(target_arch = "aarch64", target_feature = "neon")))))] {
-        use crate::CONSTANTS;
+        use crate::{CONSTANTS, impl_chacha_core};
 
         #[cfg(feature = "cipher")]
         use cipher::{StreamCipherCore, StreamCipherSeekCore};
@@ -36,6 +36,8 @@ cfg_if! {
             pub(crate) state: [u32; STATE_WORDS], 
             backend: Backend<R, V>
         }
+
+        impl_chacha_core!();
 
         #[cfg(feature = "zeroize")]
         #[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
@@ -69,54 +71,15 @@ cfg_if! {
             }
 
             #[inline]
-            fn update_state(&mut self) {
+            fn update_state() {
                 self.backend.update_state(&self.state)
             }
 
             #[inline]
             #[cfg(feature = "rng")]
-            pub(crate) fn set_nonce(&mut self, nonce: [u32; 3]) {
-                self.state[13..16].copy_from_slice(&nonce);
-                self.update_state();
-            }
-
-            #[inline]
-            #[cfg(feature = "rng")]
-            pub(crate) fn get_nonce(&self) -> [u32; 3] {
-                let mut result = [0u32; 3];
-                result.copy_from_slice(&self.state[13..16]);
-                result
-            }
-
-            #[inline]
-            #[cfg(feature = "rng")]
-            pub(crate) fn get_seed(&self) -> [u32; 8] {
-                let mut result = [0u32; 8];
-                result.copy_from_slice(&self.state[4..12]);
-                result
-            }
-
-            #[inline]
-            #[cfg(feature = "rng")]
             pub(crate) fn rng_inner(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
-                self.backend.rng_inner(dest_ptr, num_blocks);
+                self.backend.write_ks_blocks(num_blocks);
                 self.state[12] = self.state[12].wrapping_add(num_blocks as u32);
-            }
-        }
-
-        #[cfg(feature = "cipher")]
-        impl<R: Rounds, V: Variant> StreamCipherSeekCore for ChaChaCore<R, V> {
-            type Counter = u32;
-
-            #[inline(always)]
-            fn get_block_pos(&self) -> Self::Counter {
-                self.state[12]
-            }
-
-            #[inline(always)]
-            fn set_block_pos(&mut self, pos: Self::Counter) {
-                self.state[12] = pos;
-                self.update_state();
             }
         }
 
@@ -131,7 +94,8 @@ cfg_if! {
             /// Generate output, overwriting data already in the buffer.
             #[inline]
             fn process_with_backend(&mut self, f: impl StreamClosure<BlockSize = U64>) {
-                self.backend.inner(&mut self.state[12], f)
+                f.call(self.backend);
+                self.state[12] = self.backend.state[12]
             }
         }
     }

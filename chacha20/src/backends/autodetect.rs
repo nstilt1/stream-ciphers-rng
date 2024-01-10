@@ -2,7 +2,7 @@
 //! fallback to a portable version when they're unavailable.
 
 use super::{avx2, soft, sse2};
-use crate::{Rounds, STATE_WORDS, CONSTANTS, variants::Variant, backends::BackendType};
+use crate::{Rounds, STATE_WORDS, CONSTANTS, impl_chacha_core, variants::Variant, backends::BackendType};
 use core::mem::ManuallyDrop;
 use cfg_if::cfg_if;
 
@@ -159,29 +159,6 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
 
     #[inline]
     #[cfg(feature = "rng")]
-    pub(crate) fn set_nonce(&mut self, nonce: [u32; 3]) {
-        self.state[13..16].copy_from_slice(&nonce);
-        self.update_state();
-    }
-
-    #[inline]
-    #[cfg(feature = "rng")]
-    pub(crate) fn get_nonce(&self) -> [u32; 3] {
-        let mut result = [0u32; 3];
-        result.copy_from_slice(&self.state[13..16]);
-        result
-    }
-
-    #[inline]
-    #[cfg(feature = "rng")]
-    pub(crate) fn get_seed(&self) -> [u32; 8] {
-        let mut result = [0u32; 8];
-        result.copy_from_slice(&self.state[4..12]);
-        result
-    }
-
-    #[inline]
-    #[cfg(feature = "rng")]
     pub(crate) fn rng_inner(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
         cfg_if! {
             if #[cfg(chacha20_force_soft)] {
@@ -204,24 +181,10 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
     }
 }
 
-#[cfg(feature = "cipher")]
-impl<R: Rounds, V: Variant> StreamCipherSeekCore for ChaChaCore<R, V> {
-    type Counter = u32;
-
-    #[inline(always)]
-    fn get_block_pos(&self) -> Self::Counter {
-        self.state[12]
-    }
-
-    #[inline(always)]
-    fn set_block_pos(&mut self, pos: Self::Counter) {
-        self.state[12] = pos;
-        self.update_state();
-    }
-}
+impl_chacha_core!();
 
 #[cfg(feature = "cipher")]
-impl<'a, R: Rounds, V: Variant> StreamCipherCore for ChaChaCore<R, V> {
+impl<R: Rounds, V: Variant> StreamCipherCore for ChaChaCore<R, V> {
     #[inline(always)]
     fn remaining_blocks(&self) -> Option<usize> {
         let rem = u32::MAX - self.get_block_pos();
@@ -251,7 +214,7 @@ impl<'a, R: Rounds, V: Variant> StreamCipherCore for ChaChaCore<R, V> {
     }
 }
 
-impl<'a, R: Rounds, V: Variant> Clone for ChaChaCore<R, V> {
+impl<R: Rounds, V: Variant> Clone for ChaChaCore<R, V> {
     fn clone(&self) -> Self {
         cfg_if! {
             if #[cfg(chacha20_force_soft)] {

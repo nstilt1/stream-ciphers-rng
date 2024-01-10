@@ -35,11 +35,52 @@ cfg_if! {
     }
 }
 
-#[cfg(not(feature = "cipher"))]
-pub(crate) trait CipherMethods: Sized {}
+/// Implements some common methods that the various ChaChaCores use.
+#[macro_export]
+macro_rules! impl_chacha_core {
+    () => {
+        impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
+            #[inline]
+            #[cfg(feature = "rng")]
+            pub(crate) fn set_nonce(&mut self, nonce: [u32; 3]) {
+                self.state[13..16].copy_from_slice(&nonce);
+                self.update_state();
+            }
 
-#[cfg(feature = "cipher")]
-pub(crate) trait CipherMethods: StreamBackend + Sized + ParBlocksSizeUser + BlockSizeUser<BlockSize = U64> {}
+            #[inline]
+            #[cfg(feature = "rng")]
+            pub(crate) fn get_nonce(&self) -> [u32; 3] {
+                let mut result = [0u32; 3];
+                result.copy_from_slice(&self.state[13..16]);
+                result
+            }
+
+            #[inline]
+            #[cfg(feature = "rng")]
+            pub(crate) fn get_seed(&self) -> [u32; 8] {
+                let mut result = [0u32; 8];
+                result.copy_from_slice(&self.state[4..12]);
+                result
+            }
+        }
+
+        #[cfg(feature = "cipher")]
+        impl<R: Rounds, V: Variant> StreamCipherSeekCore for ChaChaCore<R, V> {
+            type Counter = u32;
+
+            #[inline(always)]
+            fn get_block_pos(&self) -> Self::Counter {
+                self.state[12]
+            }
+
+            #[inline(always)]
+            fn set_block_pos(&mut self, pos: Self::Counter) {
+                self.state[12] = pos;
+                self.update_state();
+            }
+        }
+    };
+}
 
 pub(crate) trait BackendType {
     const PAR_BLOCKS: usize;
