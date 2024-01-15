@@ -65,15 +65,15 @@ pub(crate) struct Backend<R: Rounds, V: Variant> {
     ctr: [__m256i; N],
     pub(crate) results: [[__m256i; 4]; N],
     block: usize,
-    /// not sure how else to keep up with the counter for the Cipher
-    /// it seems to evade my usage of self.block within `inner` to 
-    /// measure it
     counter: u32,
     _pd: PhantomData<R>,
     _variant: PhantomData<V>
 }
 
 #[cfg(feature = "zeroize")]
+#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
+/// This current implementation uses `.zeroize()` for the internal buffer, and 
+/// `ZeroizeOnDrop` for the state.
 impl<R: Rounds, V: Variant> Drop for Backend<R, V> {
     fn drop(&mut self) {
         self.v.zeroize();
@@ -83,9 +83,13 @@ impl<R: Rounds, V: Variant> Drop for Backend<R, V> {
 }
 
 #[cfg(feature = "zeroize")]
+#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
 impl<R: Rounds, V: Variant> ZeroizeOnDrop for Backend<R, V> {}
 
 #[cfg(feature = "zeroize")]
+#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
+/// This current implementation uses `.zeroize()` for the internal buffer, and 
+/// `ZeroizeOnDrop` for the state.
 impl<R: Rounds, V: Variant> Zeroize for Backend<R, V> {
     fn zeroize(&mut self) {
         self.results.zeroize();
@@ -240,6 +244,8 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
         V: Variant
     {
         f.call(self);
+        // this seems to be the only way to keep track of the counter since 
+        // `f.call(self)` can run `gen_par_ks_blocks()` multiple times
         *state_counter = self.counter;
     }
 

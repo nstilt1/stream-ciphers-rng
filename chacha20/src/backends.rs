@@ -1,41 +1,31 @@
 use cfg_if::cfg_if;
 
 #[cfg(feature = "cipher")]
-use cipher::{consts::U64, StreamBackend, BlockSizeUser, ParBlocksSizeUser};
+use cipher::{consts::U64, BlockSizeUser};
 
 use crate::{STATE_WORDS, Rounds, Variant};
 
-pub(crate) mod soft;
-
 cfg_if! {
     if #[cfg(chacha20_force_soft)] {
+        pub(crate) mod soft;
         pub use self::soft::ChaChaCore;
     } else if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
-        // cfg_if! {
-        //     if #[cfg(chacha20_force_avx2)] {
-        //         pub(crate) mod avx2;
-        //     } else if #[cfg(chacha20_force_sse2)] {
-        //         pub(crate) mod sse2;
-        //     } else {
-        //         pub(crate) mod soft;
-        //         pub(crate) mod avx2;
-        //         pub(crate) mod sse2;
-        //     }
-        // }
         pub(crate) mod autodetect;
         pub(crate) mod avx2;
         pub(crate) mod sse2;
+        pub(crate) mod soft;
 
         pub(crate) use self::autodetect::ChaChaCore;
     } else if #[cfg(all(target_arch = "aarch64", target_feature = "neon"))] {
         pub(crate) mod neon;
         pub use self::neon::ChaChaCore;
     } else {
+        pub(crate) mod soft;
         pub use self::soft::ChaChaCore;
     }
 }
 
-/// Implements some common methods that the various ChaChaCores use.
+/// Implements some common methods that the various `ChaChaCore`s use.
 #[macro_export]
 macro_rules! impl_chacha_core {
     () => {
@@ -82,6 +72,7 @@ macro_rules! impl_chacha_core {
     };
 }
 
+/// A set of common methods that the backends implement.
 pub(crate) trait BackendType {
     const PAR_BLOCKS: usize;
 

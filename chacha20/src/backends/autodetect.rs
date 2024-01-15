@@ -16,7 +16,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 pub struct ChaChaCore<R: Rounds, V: Variant> {
     pub(crate) state: [u32; STATE_WORDS],
     inner: Inner<R, V>,
-    avx2_token: avx2_cpuid::InitToken,
+    pub(crate) avx2_token: avx2_cpuid::InitToken,
     sse2_token: sse2_cpuid::InitToken,
 }
 
@@ -114,18 +114,18 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
     pub(crate) fn rng_inner(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
         cfg_if! {
             if #[cfg(chacha20_force_soft)] {
-                unsafe { (*self.inner.soft).rng_inner(dest_ptr, num_blocks) }
+                unsafe { (*self.inner.soft).write_ks_blocks(dest_ptr, num_blocks) }
             } else if #[cfg(chacha20_force_avx2)] {
                 unsafe { (*self.inner.avx2).rng_inner(dest_ptr, num_blocks) }
             } else if #[cfg(chacha20_force_sse2)] {
-                unsafe { (*self.inner.sse2).rng_inner(dest_ptr, num_blocks) }
+                unsafe { (*self.inner.sse2).write_ks_blocks(dest_ptr, num_blocks) }
             } else {
                 if self.avx2_token.get() {
                     unsafe { (*self.inner.avx2).rng_inner(dest_ptr, num_blocks) }
                 } else if self.sse2_token.get() {
-                    unsafe { (*self.inner.sse2).rng_inner(dest_ptr, num_blocks) }
+                    unsafe { (*self.inner.sse2).write_ks_blocks(dest_ptr, num_blocks) }
                 } else {
-                    unsafe { (*self.inner.soft).rng_inner(dest_ptr, num_blocks) }
+                    unsafe { (*self.inner.soft).write_ks_blocks(dest_ptr, num_blocks) }
                 }
             }
         }
@@ -209,7 +209,8 @@ impl<R: Rounds, V: Variant> Clone for ChaChaCore<R, V> {
 
 #[cfg(feature = "zeroize")]
 #[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
-/// I'm not entirely sure if `ManuallyDrop` values need to have `ManuallyDrop::drop` called
+/// This current implementation uses `.zeroize()` for the internal buffer, and 
+/// `ZeroizeOnDrop` for the state.
 impl<R: Rounds, V: Variant> Zeroize for ChaChaCore<R, V> {
     fn zeroize(&mut self) {
         cfg_if! {
@@ -244,12 +245,14 @@ impl<R: Rounds, V: Variant> Zeroize for ChaChaCore<R, V> {
     }
 }
 
-#[cfg(feature = "zeroize")]
-#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
-/// I'm not entirely sure if `ManuallyDrop` values need to have `ManuallyDrop::drop` called
+/// This current implementation uses `.zeroize()` for the internal buffer, and 
+/// `ZeroizeOnDrop` for the state.
 impl<R: Rounds, V: Variant> Drop for ChaChaCore<R, V> {
     fn drop(&mut self) {
+        #[cfg(feature = "zeroize")]
+        #[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
         self.state.zeroize();
+        
         cfg_if! {
             if #[cfg(chacha20_force_soft)] {
                 unsafe { 

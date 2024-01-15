@@ -176,7 +176,7 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
 }
 
 #[cfg(feature = "cipher")]
-impl<'a, R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
+impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
     #[inline(always)]
     /// Writes a single block to `block`
     fn gen_ks_block(&mut self, block: &mut Block) {
@@ -188,7 +188,7 @@ impl<'a, R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
 }
 
 #[cfg(feature = "cipher")]
-impl<'a, R: Rounds, V: Variant> Backend<R, V> {
+impl<R: Rounds, V: Variant> Backend<R, V> {
     #[inline]
     #[cfg(feature = "cipher")]
     pub(crate) fn inner<F>(&mut self, state_counter: &mut u32, f: F) 

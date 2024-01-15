@@ -30,6 +30,8 @@ pub(crate) struct Backend<R: Rounds, V: Variant> {
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 #[cfg(feature = "zeroize")]
+/// This current implementation uses `.zeroize()` for the internal buffer, and 
+/// `ZeroizeOnDrop` for the state.
 impl<R: Rounds, V: Variant> Drop for Backend<R, V> {
     fn drop(&mut self) {
         self.v.zeroize();
@@ -42,6 +44,8 @@ impl<R: Rounds, V: Variant> ZeroizeOnDrop for Backend<R, V> {}
 
 #[cfg(feature = "zeroize")]
 #[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
+/// This current implementation uses `.zeroize()` for the internal buffer, and 
+/// `ZeroizeOnDrop` for the state.
 impl<R: Rounds, V: Variant> Zeroize for Backend<R, V> {
     fn zeroize(&mut self) {
         self.res.zeroize()
