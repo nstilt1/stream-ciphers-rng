@@ -115,6 +115,9 @@
 #[cfg(feature = "cipher")]
 pub use cipher;
 
+#[cfg(feature = "zeroize")]
+use zeroize::{Zeroize, ZeroizeOnDrop};
+
 pub(crate) mod backends;
 #[cfg(feature = "cipher")]
 mod chacha;
@@ -178,3 +181,17 @@ pub struct R20;
 impl Rounds for R20 {
     const COUNT: usize = 10;
 }
+
+#[cfg(feature = "zeroize")]
+impl<R: Rounds, V: Variant> Drop for ChaChaCore<R, V> {
+    fn drop(&mut self) {
+        let n = core::mem::size_of::<Self>();
+        unsafe {
+            core::ptr::write_bytes(self, 0, n);
+            // TODO: zeroize self properly
+        }
+    }
+}
+
+#[cfg(feature = "zeroize")]
+impl<R: Rounds, V: Variant> ZeroizeOnDrop for ChaChaCore<R, V> {}
