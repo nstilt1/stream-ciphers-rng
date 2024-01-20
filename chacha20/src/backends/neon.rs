@@ -17,26 +17,11 @@ use cipher::{
     StreamCipherSeekCore
 };
 
-#[cfg(feature = "zeroize")]
-use zeroize::{Zeroize, ZeroizeOnDrop};
-
 #[derive(Clone)]
 pub struct ChaChaCore<R: Rounds, V: Variant> {
     pub(crate) state: [u32; STATE_WORDS],
     backend: Backend<R, V>
 }
-
-#[cfg(feature = "zeroize")]
-#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
-impl<R: Rounds, V: Variant> Drop for ChaChaCore<R, V> {
-    fn drop(&mut self) {
-        self.state.zeroize();
-    }
-}
-
-#[cfg(feature = "zeroize")]
-#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
-impl<R: Rounds, V: Variant> ZeroizeOnDrop for ChaChaCore<R, V> {}
 
 impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
     #[inline]
@@ -98,30 +83,6 @@ struct Backend<R: Rounds, V: Variant> {
     block: usize,
     _pd: PhantomData<R>,
     _variant: PhantomData<V>
-}
-
-#[cfg(feature = "zeroize")]
-#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
-/// This current implementation uses `.zeroize()` for the internal buffer, and 
-/// `ZeroizeOnDrop` for the state.
-impl<R: Rounds, V: Variant> Drop for Backend<R, V> {
-    fn drop(&mut self) {
-        self.state.zeroize();
-    }
-}
-
-#[cfg(feature = "zeroize")]
-#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
-impl<R: Rounds, V: Variant> ZeroizeOnDrop for Backend<R, V> {}
-
-#[cfg(feature = "zeroize")]
-#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
-/// This current implementation uses `.zeroize()` for the internal buffer, and 
-/// `ZeroizeOnDrop` for the state.
-impl<R: Rounds, V: Variant> Zeroize for Backend<R, V> {
-    fn zeroize(&mut self) {
-        self.results.zeroize()
-    }
 }
 
 macro_rules! add64 {

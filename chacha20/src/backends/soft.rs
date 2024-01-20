@@ -16,9 +16,6 @@ use cipher::{
 
 use super::BackendType;
 
-#[cfg(feature = "zeroize")]
-use zeroize::{Zeroize, ZeroizeOnDrop};
-
 use cfg_if::cfg_if;
 
 cfg_if! {
@@ -35,26 +32,6 @@ cfg_if! {
         }
 
         impl_chacha_core!();
-
-        #[cfg(feature = "zeroize")]
-        #[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
-        impl<R: Rounds, V: Variant> Drop for ChaChaCore<R, V> {
-            fn drop(&mut self) {
-                self.state.zeroize();
-            }
-        }
-
-        #[cfg(feature = "zeroize")]
-        #[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
-        impl<R: Rounds, V: Variant> ZeroizeOnDrop for ChaChaCore<R, V> {}
-
-        #[cfg(feature = "zeroize")]
-        #[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
-        impl<R: Rounds, V: Variant> Zeroize for ChaChaCore<R, V> {
-            fn zeroize(&mut self) {
-                self.backend.zeroize();
-            }
-        }
 
         impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
             pub fn new(key: &[u8; 32], iv: &[u8]) -> Self {
@@ -114,14 +91,6 @@ pub(crate) struct Backend<R: Rounds, V: Variant>{
     results: [u32; 16],
     _r: PhantomData<R>,
     _variant: PhantomData<V>
-}
-
-#[cfg(feature = "zeroize")]
-#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
-impl<R: Rounds, V: Variant> Zeroize for Backend<R, V> {
-    fn zeroize(&mut self) {
-        self.results.zeroize();
-    }
 }
 
 #[cfg(feature = "cipher")]
@@ -245,15 +214,3 @@ fn quarter_round(a: usize, b: usize, c: usize, d: usize, state: &mut [u32; STATE
     state[b] ^= state[c];
     state[b] = state[b].rotate_left(7);
 }
-
-#[cfg(feature = "zeroize")]
-#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
-impl<R: Rounds, V: Variant> Drop for Backend<R, V> {
-    fn drop(&mut self) {
-        self.state.zeroize();
-    }
-}
-
-#[cfg(feature = "zeroize")]
-#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
-impl<R: Rounds, V: Variant> ZeroizeOnDrop for Backend<R, V> {}

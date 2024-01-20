@@ -15,9 +15,6 @@ use cipher::{StreamBackend,
     ParBlocks, ParBlocksSizeUser, BlockSizeUser, StreamClosure
 };
 
-#[cfg(feature = "zeroize")]
-use zeroize::{Zeroize, ZeroizeOnDrop};
-
 use super::BackendType;
 
 /// Number of blocks processed in parallel.
@@ -68,32 +65,6 @@ pub(crate) struct Backend<R: Rounds, V: Variant> {
     counter: u32,
     _pd: PhantomData<R>,
     _variant: PhantomData<V>
-}
-
-#[cfg(feature = "zeroize")]
-#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
-/// This current implementation uses `.zeroize()` for the internal buffer, and 
-/// `ZeroizeOnDrop` for the state.
-impl<R: Rounds, V: Variant> Drop for Backend<R, V> {
-    fn drop(&mut self) {
-        self.v.zeroize();
-        self.ctr.zeroize();
-        self.counter.zeroize();
-    }
-}
-
-#[cfg(feature = "zeroize")]
-#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
-impl<R: Rounds, V: Variant> ZeroizeOnDrop for Backend<R, V> {}
-
-#[cfg(feature = "zeroize")]
-#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
-/// This current implementation uses `.zeroize()` for the internal buffer, and 
-/// `ZeroizeOnDrop` for the state.
-impl<R: Rounds, V: Variant> Zeroize for Backend<R, V> {
-    fn zeroize(&mut self) {
-        self.results.zeroize();
-    }
 }
 
 impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {

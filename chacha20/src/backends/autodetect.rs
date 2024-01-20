@@ -9,9 +9,6 @@ use cfg_if::cfg_if;
 cpufeatures::new!(avx2_cpuid, "avx2");
 cpufeatures::new!(sse2_cpuid, "sse2");
 
-#[cfg(feature = "zeroize")]
-use zeroize::{Zeroize, ZeroizeOnDrop};
-
 /// The ChaCha core function.
 pub struct ChaChaCore<R: Rounds, V: Variant> {
     pub(crate) state: [u32; STATE_WORDS],
@@ -206,85 +203,3 @@ impl<R: Rounds, V: Variant> Clone for ChaChaCore<R, V> {
         }
     }
 }
-
-#[cfg(feature = "zeroize")]
-#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
-/// This current implementation uses `.zeroize()` for the internal buffer, and 
-/// `ZeroizeOnDrop` for the state.
-impl<R: Rounds, V: Variant> Zeroize for ChaChaCore<R, V> {
-    fn zeroize(&mut self) {
-        cfg_if! {
-            if #[cfg(chacha20_force_soft)] {
-                unsafe { 
-                    (*self.inner.soft).zeroize(); 
-                }
-            } else if #[cfg(chacha20_force_avx2)] {
-                unsafe { 
-                    (*self.inner.avx2).zeroize();
-                }
-            } else if #[cfg(chacha20_force_sse2)] {
-                unsafe { 
-                    (*self.inner.sse2).zeroize();
-                }
-            } else {
-                if self.avx2_token.get() {
-                    unsafe { 
-                        (*self.inner.avx2).zeroize();
-                    }
-                } else if self.sse2_token.get() {
-                    unsafe { 
-                        (*self.inner.sse2).zeroize();
-                    }
-                } else {
-                    unsafe { 
-                        (*self.inner.soft).zeroize();
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// This current implementation uses `.zeroize()` for the internal buffer, and 
-/// `ZeroizeOnDrop` for the state.
-impl<R: Rounds, V: Variant> Drop for ChaChaCore<R, V> {
-    fn drop(&mut self) {
-        #[cfg(feature = "zeroize")]
-        #[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
-        self.state.zeroize();
-        
-        cfg_if! {
-            if #[cfg(chacha20_force_soft)] {
-                unsafe { 
-                    ManuallyDrop::drop(&mut self.inner.soft)
-                }
-            } else if #[cfg(chacha20_force_avx2)] {
-                unsafe { 
-                    ManuallyDrop::drop(&mut self.inner.avx2)
-                }
-            } else if #[cfg(chacha20_force_sse2)] {
-                unsafe { 
-                    ManuallyDrop::drop(&mut self.inner.sse2)
-                }
-            } else {
-                if self.avx2_token.get() {
-                    unsafe { 
-                        ManuallyDrop::drop(&mut self.inner.avx2)
-                    }
-                } else if self.sse2_token.get() {
-                    unsafe { 
-                        ManuallyDrop::drop(&mut self.inner.sse2) 
-                    }
-                } else {
-                    unsafe { 
-                        ManuallyDrop::drop(&mut self.inner.soft)
-                    }
-                }
-            }
-        }
-    }
-}
-
-#[cfg(feature = "zeroize")]
-#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
-impl<R: Rounds, V: Variant> ZeroizeOnDrop for ChaChaCore<R, V> {}
