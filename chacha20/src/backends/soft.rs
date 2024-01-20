@@ -57,9 +57,13 @@ cfg_if! {
                 self.backend.update_state(&self.state)
             }
 
+            /// Generates `num_blocks` blocks of output and writes them `dest_ptr`.
+            ///
+            /// # Safety
+            /// - `dest_ptr` must have `num_blocks * 64 bytes` available to be overwritten.
             #[inline]
             #[cfg(feature = "rng")]
-            pub(crate) fn rng_inner(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
+            pub(crate) unsafe fn generate(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
                 unsafe {
                     self.backend.write_ks_blocks(dest_ptr, num_blocks);
                 }

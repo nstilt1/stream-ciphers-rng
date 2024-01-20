@@ -106,9 +106,13 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
         }
     }
 
+    /// Generates `num_blocks` blocks of output and writes them `dest_ptr`.
+    ///
+    /// # Safety
+    /// - `dest_ptr` must have `num_blocks * 64 bytes` available to be overwritten.
     #[inline]
     #[cfg(feature = "rng")]
-    pub(crate) fn rng_inner(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
+    pub(crate) unsafe fn generate(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
         cfg_if! {
             if #[cfg(chacha20_force_soft)] {
                 unsafe { (*self.inner.soft).write_ks_blocks(dest_ptr, num_blocks) }

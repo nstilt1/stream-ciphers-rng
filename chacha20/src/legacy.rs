@@ -4,12 +4,12 @@ use crate::chacha::Key;
 use crate::{ChaChaCore, R20};
 use cipher::{
     consts::{U32, U8},
-    generic_array::GenericArray,
+    array::Array,
     IvSizeUser, KeyIvInit, KeySizeUser, StreamCipherCoreWrapper,
 };
 
 /// Nonce type used by [`ChaCha20Legacy`].
-pub type LegacyNonce = GenericArray<u8, U8>;
+pub type LegacyNonce = Array<u8, U8>;
 
 use crate::variants::Legacy;
 
