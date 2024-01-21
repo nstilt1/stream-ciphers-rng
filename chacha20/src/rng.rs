@@ -188,8 +188,8 @@ cfg_if! {
 
 /// The results buffer. Aligned by 16-byte boundaries to try to increase 
 /// SIMD performance.
-#[cfg_attr(feature = "zeroize", derive(Copy, Clone))]
 #[repr(align(16))]
+#[derive(Copy, Clone)]
 pub struct BlockRngResults([u32; BUFFER_SIZE]);
 
 impl AsRef<[u32]> for BlockRngResults {

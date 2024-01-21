@@ -185,7 +185,7 @@ impl<R: Rounds, V: Variant> Drop for ChaChaCore<R, V> {
     fn drop(&mut self) {
         let n = core::mem::size_of::<Self>();
         unsafe {
-            core::ptr::write_bytes(self, 0, n);
+            //core::ptr::write_bytes(self, 0, n);
             // TODO: zeroize self properly
         }
     }
