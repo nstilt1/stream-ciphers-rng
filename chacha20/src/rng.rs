@@ -17,7 +17,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::{
-    variants::{Ietf, Variant},
+    variants::Ietf,
     ChaChaCore, R12, R20, R8,
 };
 
@@ -186,6 +186,33 @@ cfg_if! {
     }
 }
 
+/// The results buffer. Aligned by 16-byte boundaries to try to increase 
+/// SIMD performance.
+#[cfg_attr(feature = "zeroize", derive(Copy, Clone))]
+#[repr(align(16))]
+pub struct BlockRngResults([u32; BUFFER_SIZE]);
+
+impl AsRef<[u32]> for BlockRngResults {
+    fn as_ref(&self) -> &[u32] {
+        &self.0
+    }
+}
+
+impl AsMut<[u32]> for BlockRngResults {
+    fn as_mut(&mut self) -> &mut [u32] {
+        &mut self.0
+    }
+}
+
+impl Default for BlockRngResults {
+    fn default() -> Self {
+        Self([0u32; BUFFER_SIZE])
+    }
+}
+
+#[cfg(feature = "zeroize")]
+impl zeroize::DefaultIsZeroes for BlockRngResults {}
+
 // NB. this must remain consistent with some currently hard-coded numbers in this module
 const BUF_BLOCKS: u8 = BUFFER_SIZE as u8 >> 4;
 
@@ -276,11 +303,11 @@ macro_rules! impl_chacha_rng {
 
         impl BlockRngCore for $ChaChaXCore {
             type Item = u32;
-            type Results = [u32; BUFFER_SIZE];
+            type Results = BlockRngResults;
             #[inline]
             fn generate(&mut self, r: &mut Self::Results) {
                 unsafe {
-                    self.0.generate(r.as_mut_ptr() as *mut u8, BUF_BLOCKS as usize)
+                    self.0.generate(r.0.as_mut_ptr() as *mut u8, BUF_BLOCKS as usize)
                 }
             }
         }

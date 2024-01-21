@@ -64,12 +64,12 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
         }
     }
 
-    #[inline(always)]
     /// Generates a single block and blindly writes it to `dest_ptr`
     /// 
     /// # Safety
     /// `dest_ptr` must have at least 64 bytes available to be overwritten, or else it 
     /// could cause a segmentation fault and/or undesired behavior
+    #[inline(always)]
     unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
         let mut block_ptr = dest_ptr as *mut __m128i;
         for _i in 0..num_blocks {
@@ -78,6 +78,27 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
 
             for i in 0..4 {
                 _mm_storeu_si128(block_ptr.add(i), self.res[i]);
+            }
+            block_ptr = block_ptr.add(4);
+        }
+    }
+
+    /// Generates a single block and blindly writes it to `dest_ptr`
+    /// 
+    /// # Safety
+    /// - `dest_ptr` must have at least 64 bytes available to be overwritten, or else it 
+    /// could cause a segmentation fault and/or undesired behavior
+    /// - `dest_ptr` should be aligned on a 16-byte boundary
+    #[cfg(feature = "rng")]
+    #[inline(always)]
+    unsafe fn write_ks_blocks_aligned(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
+        let mut block_ptr = dest_ptr as *mut __m128i;
+        for _i in 0..num_blocks {
+            self.rounds();
+            self.increment_counter(1);
+
+            for i in 0..4 {
+                _mm_store_si128(block_ptr.add(i), self.res[i]);
             }
             block_ptr = block_ptr.add(4);
         }

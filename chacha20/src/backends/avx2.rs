@@ -39,6 +39,25 @@ macro_rules! extract_1_block {
     };
 }
 
+/// Extracts a single block of output from a [__m256i; 4], and writes it to a 
+/// 16-byte aligned pointer.
+/// ### Parameters
+/// - `$block_ptr`: a `*mut __m128i` to write a block to
+/// - `$block_pair`: a `[__m256i; 4]` that contains 2 blocks of output
+/// - `$block_index`: a `0` or `1` to determine which block you want to extract
+/// ### Safety
+/// - Ensure that `$block_ptr` is suitable for receiving 64 bytes of data
+/// - Ensure that `$block_ptr` is 16-byte aligned
+macro_rules! extract_1_block_aligned {
+    ($block_ptr:expr, $block_pair:expr, $block_index:literal) => {
+        let t: [__m128i; 8] = core::mem::transmute($block_pair);
+        for i in 0..4 {
+            _mm_store_si128($block_ptr.add(i), t[(i << 1) + $block_index]);
+        }
+        $block_ptr = $block_ptr.add(4);
+    };
+}
+
 /// Extracts 2 blocks of output from a [__m256i; 4].
 /// ### Parameters
 /// - `$block_ptr`: a `*mut __m128i` to write a block to
@@ -51,6 +70,25 @@ macro_rules! extract_2_blocks {
         for i in 0..4 {
             _mm_storeu_si128($block_ptr.add(i), t[i<<1]);
             _mm_storeu_si128($block_ptr.add(4+i), t[(i<<1) + 1]);
+        }
+        $block_ptr = $block_ptr.add(8);
+    };
+}
+
+/// Extracts 2 blocks of output from a [__m256i; 4], and writes it to a 
+/// 16-byte aligned pointer.
+/// ### Parameters
+/// - `$block_ptr`: a `*mut __m128i` to write a block to
+/// - `$block_pair`: a `[__m256i; 4]` that contains 2 blocks of output
+/// ### Safety
+/// - Ensure that `$block_ptr` is suitable for receiving 128 bytes of data.
+/// - Ensure that `$block_ptr` is 16-byte aligned
+macro_rules! extract_2_blocks_aligned {
+    ($block_ptr:expr, $block_pair:expr) => {
+        let t: [__m128i; 8] = core::mem::transmute($block_pair);
+        for i in 0..4 {
+            _mm_store_si128($block_ptr.add(i), t[i<<1]);
+            _mm_store_si128($block_ptr.add(4+i), t[(i<<1) + 1]);
         }
         $block_ptr = $block_ptr.add(8);
     };
@@ -123,7 +161,6 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
         }
     }
     
-    //#[inline]
     /// Generates `num_blocks` blocks and blindly writes them to `dest_ptr` recursively
     /// 
     /// # Safety
@@ -155,6 +192,39 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
         } // else: num_blocks == 0, recursion ends
     }
 
+    /// Generates `num_blocks` blocks and blindly writes them to `dest_ptr` recursively
+    /// 
+    /// # Safety
+    /// - `dest_ptr` must have at least `num_blocks * 64` bytes available to be overwritten, or else it 
+    /// could result in a segmentation fault or undesired behavior
+    /// - `dest_ptr` should be aligned on a 16-byte boundary
+    #[cfg(feature = "rng")]
+    unsafe fn write_ks_blocks_aligned(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
+        let mut _block_ptr = dest_ptr as *mut __m128i;
+        
+        if self.block == Self::PAR_BLOCKS {
+            self.rounds();
+            self.block = 0;
+        }
+
+        // if (self.block % 2 == 0) to check if either `extract_2_blocks` or `extract_first_block` can be used
+        if self.block & 0b01 == 0 {
+            if num_blocks >= 2 {
+                extract_2_blocks_aligned!(_block_ptr, self.results[self.block >> 1]);
+                self.block += 2;
+                self.write_ks_blocks(_block_ptr as *mut u8, num_blocks - 2);
+            } else if num_blocks == 1 {
+                extract_1_block_aligned!(_block_ptr, self.results[self.block >> 1], 0);
+                self.block += 1;
+            } // else: num_blocks == 0, recursion ends
+        } else if num_blocks > 0 {
+            // self.block is either 1 or 3
+            extract_1_block_aligned!(_block_ptr, self.results[self.block >> 1], 1);
+            self.block += 1;
+            self.write_ks_blocks(_block_ptr as *mut u8, num_blocks - 1);
+        } // else: num_blocks == 0, recursion ends
+    }
+
     #[cfg(feature = "rng")]
     #[inline]
     fn rng_inner(&mut self, mut dest_ptr: *mut u8, mut num_blocks: usize) {
@@ -162,12 +232,12 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
         // to reduce memory usage
         unsafe {
             while num_blocks > 4 {
-                self.write_ks_blocks(dest_ptr, 4);
+                self.write_ks_blocks_aligned(dest_ptr, 4);
                 dest_ptr = dest_ptr.add(256);
                 num_blocks -= 4;
             }
             if num_blocks > 0 {
-                self.write_ks_blocks(dest_ptr, num_blocks)
+                self.write_ks_blocks_aligned(dest_ptr, num_blocks)
             }
             self.counter = self.counter.wrapping_add(num_blocks as u32);
         }

@@ -84,6 +84,14 @@ pub(crate) trait BackendType {
 
     unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize);
 
+    /// Writes keystream blocks with alignment. Do not use for writing to unaligned 
+    /// destinations. This will default to the unaligned version for backends where 
+    /// this is not necessary.
+    #[cfg(feature = "rng")]
+    unsafe fn write_ks_blocks_aligned(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
+        self.write_ks_blocks(dest_ptr, num_blocks)
+    }
+
     #[cfg(feature = "rng")]
     /// Generates `num_blocks * 64` bytes and blindly writes them to `dest_ptr`
     /// 
