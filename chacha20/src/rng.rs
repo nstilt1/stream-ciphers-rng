@@ -307,7 +307,7 @@ macro_rules! impl_chacha_rng {
             #[inline]
             fn generate(&mut self, r: &mut Self::Results) {
                 unsafe {
-                    self.0.generate(r.0.as_mut_ptr() as *mut u8, BUF_BLOCKS as usize)
+                    self.0.generate(r.0.as_mut_ptr(), BUF_BLOCKS as usize)
                 }
             }
         }

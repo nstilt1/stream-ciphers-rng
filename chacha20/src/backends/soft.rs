@@ -152,15 +152,14 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     /// - `dest_ptr` should be aligned on a 16-byte boundary
     #[cfg(feature = "rng")]
     #[inline(always)]
-    unsafe fn write_ks_blocks_aligned(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
-        let mut block_ptr = dest_ptr as *mut u32;
+    unsafe fn write_ks_blocks_aligned(&mut self, mut dest_ptr: *mut u32, num_blocks: usize) {
         for _i in 0..num_blocks {
             self.run_rounds();
             self.increment_counter(1);
 
             for val in self.results.iter() {
-                block_ptr.write(val.to_le());
-                block_ptr = block_ptr.add(1);
+                dest_ptr.write(val.to_le());
+                dest_ptr = dest_ptr.add(1);
             }
         }
     }

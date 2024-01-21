@@ -112,7 +112,7 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
     /// - `dest_ptr` must have `num_blocks * 64 bytes` available to be overwritten.
     #[inline]
     #[cfg(feature = "rng")]
-    pub(crate) unsafe fn generate(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
+    pub(crate) unsafe fn generate(&mut self, dest_ptr: *mut u32, num_blocks: usize) {
         cfg_if! {
             if #[cfg(chacha20_force_soft)] {
                 unsafe { (*self.inner.soft).write_ks_blocks_aligned(dest_ptr, num_blocks) }

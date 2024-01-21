@@ -199,7 +199,7 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     /// could result in a segmentation fault or undesired behavior
     /// - `dest_ptr` should be aligned on a 16-byte boundary
     #[cfg(feature = "rng")]
-    unsafe fn write_ks_blocks_aligned(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
+    unsafe fn write_ks_blocks_aligned(&mut self, dest_ptr: *mut u32, num_blocks: usize) {
         let mut _block_ptr = dest_ptr as *mut __m128i;
         
         if self.block == Self::PAR_BLOCKS {
@@ -227,13 +227,13 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
 
     #[cfg(feature = "rng")]
     #[inline]
-    fn rng_inner(&mut self, mut dest_ptr: *mut u8, mut num_blocks: usize) {
+    fn rng_inner(&mut self, mut dest_ptr: *mut u32, mut num_blocks: usize) {
         // limiting recursion depth to a maximum of 3 recursive calls to try 
         // to reduce memory usage
         unsafe {
             while num_blocks > 4 {
                 self.write_ks_blocks_aligned(dest_ptr, 4);
-                dest_ptr = dest_ptr.add(256);
+                dest_ptr = dest_ptr.add(64);
                 num_blocks -= 4;
             }
             if num_blocks > 0 {

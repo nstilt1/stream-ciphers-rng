@@ -88,8 +88,8 @@ pub(crate) trait BackendType {
     /// destinations. This will default to the unaligned version for backends where 
     /// this is not necessary.
     #[cfg(feature = "rng")]
-    unsafe fn write_ks_blocks_aligned(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
-        self.write_ks_blocks(dest_ptr, num_blocks)
+    unsafe fn write_ks_blocks_aligned(&mut self, dest_ptr: *mut u32, num_blocks: usize) {
+        self.write_ks_blocks(dest_ptr as *mut u8, num_blocks)
     }
 
     #[cfg(feature = "rng")]
@@ -98,9 +98,9 @@ pub(crate) trait BackendType {
     /// # Safety
     /// `dest_ptr` must have at least `num_blocks * 4` bytes available to be 
     /// overwritten, or else it could produce undefined behavior
-    fn rng_inner(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
+    fn rng_inner(&mut self, dest_ptr: *mut u32, num_blocks: usize) {
         unsafe {
-            self.write_ks_blocks(dest_ptr, num_blocks);
+            self.write_ks_blocks(dest_ptr as *mut u8, num_blocks);
         }
     }
 }
