@@ -1,8 +1,8 @@
 //! XChaCha is an extended nonce variant of ChaCha
 
 use cipher::{
-    consts::{U16, U24, U32, U64},
     array::Array,
+    consts::{U16, U24, U32, U64},
     BlockSizeUser, IvSizeUser, KeyIvInit, KeySizeUser, StreamCipherCore, StreamCipherCoreWrapper,
     StreamCipherSeekCore, StreamClosure,
 };
@@ -194,10 +194,7 @@ mod hchacha20_tests {
             "a0f9e4d58a74a853c12ec41326d3ecdc"
         );
 
-        let actual = hchacha::<R20>(
-            Array::from_slice(&KEY),
-            Array::from_slice(&INPUT),
-        );
+        let actual = hchacha::<R20>(Array::from_slice(&KEY), Array::from_slice(&INPUT));
         assert_eq!(actual.as_slice(), &OUTPUT);
     }
 }

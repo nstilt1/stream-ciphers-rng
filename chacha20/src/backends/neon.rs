@@ -3,7 +3,7 @@
 //! Adapted from the Crypto++ `chacha_simd` implementation by Jack Lloyd and
 //! Jeffrey Walton (public domain).
 
-use crate::{Rounds, STATE_WORDS, CONSTANTS, Variant, backends::BackendType, impl_chacha_core};
+use crate::{backends::BackendType, impl_chacha_core, Rounds, Variant, CONSTANTS, STATE_WORDS};
 use core::{arch::aarch64::*, marker::PhantomData};
 
 #[cfg(feature = "cipher")]
@@ -12,15 +12,14 @@ use crate::chacha::Block;
 #[cfg(feature = "cipher")]
 use cipher::{
     consts::{U4, U64},
-    BlockSizeUser, ParBlocks, ParBlocksSizeUser, StreamBackend, StreamClosure,
-    StreamCipherCore,
-    StreamCipherSeekCore
+    BlockSizeUser, ParBlocks, ParBlocksSizeUser, StreamBackend, StreamCipherCore,
+    StreamCipherSeekCore, StreamClosure,
 };
 
 #[derive(Clone)]
 pub struct ChaChaCore<R: Rounds, V: Variant> {
     pub(crate) state: [u32; STATE_WORDS],
-    backend: Backend<R, V>
+    backend: Backend<R, V>,
 }
 
 impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
@@ -39,7 +38,7 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
 
         Self {
             state,
-            backend: Backend::new(&state)
+            backend: Backend::new(&state),
         }
     }
 
@@ -73,9 +72,7 @@ impl<'a, R: Rounds, V: Variant> StreamCipherCore for ChaChaCore<R, V> {
     /// Generate output, overwriting data already in the buffer.
     #[inline]
     fn process_with_backend(&mut self, f: impl StreamClosure<BlockSize = U64>) {
-        unsafe {
-            f.call(self)
-        }
+        unsafe { f.call(self) }
     }
 }
 
@@ -86,7 +83,7 @@ struct Backend<R: Rounds, V: Variant> {
     results: [[uint32x4_t; 4]; 4],
     block: usize,
     _pd: PhantomData<R>,
-    _variant: PhantomData<V>
+    _variant: PhantomData<V>,
 }
 
 macro_rules! add64 {
@@ -154,7 +151,7 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
                 ],
                 block: 4,
                 _pd: PhantomData,
-                _variant: PhantomData
+                _variant: PhantomData,
             }
         }
     }
@@ -182,7 +179,7 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     ///
     /// # Safety
     /// `dest_ptr` must have at least `64 * num_blocks` bytes available to be
-    /// overwritten, or else it could cause a segmentation fault and/or undesired 
+    /// overwritten, or else it could cause a segmentation fault and/or undesired
     /// behavior
     unsafe fn write_ks_blocks(&mut self, mut dest_ptr: *mut u8, mut num_blocks: usize) {
         if self.block >= Self::PAR_BLOCKS {
@@ -212,7 +209,7 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     #[cfg(feature = "rng")]
     #[inline]
     fn rng_inner(&mut self, mut dest_ptr: *mut u8, mut num_blocks: usize) {
-        // limiting recursion depth to a maximum of 2 recursive calls to try 
+        // limiting recursion depth to a maximum of 2 recursive calls to try
         // to reduce memory usage
         unsafe {
             while num_blocks > 4 {
@@ -233,9 +230,24 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
     unsafe fn rounds(&mut self) {
         self.results = [
             [self.state[0], self.state[1], self.state[2], self.state[3]],
-            [self.state[0], self.state[1], self.state[2], add64!(self.state[3], self.ctrs[0])],
-            [self.state[0], self.state[1], self.state[2], add64!(self.state[3], self.ctrs[1])],
-            [self.state[0], self.state[1], self.state[2], add64!(self.state[3], self.ctrs[2])],
+            [
+                self.state[0],
+                self.state[1],
+                self.state[2],
+                add64!(self.state[3], self.ctrs[0]),
+            ],
+            [
+                self.state[0],
+                self.state[1],
+                self.state[2],
+                add64!(self.state[3], self.ctrs[1]),
+            ],
+            [
+                self.state[0],
+                self.state[1],
+                self.state[2],
+                add64!(self.state[3], self.ctrs[2]),
+            ],
         ];
 
         for _ in 0..R::COUNT {
@@ -251,7 +263,7 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
                 self.results[block][3] = add64!(self.results[block][3], self.ctrs[block - 1]);
             }
         }
-        
+
         self.increment_counter(Self::PAR_BLOCKS as i32);
     }
 }
@@ -266,14 +278,19 @@ impl<R: Rounds, V: Variant> StreamBackend for ChaChaCore<R, V> {
     #[inline(always)]
     fn gen_ks_block(&mut self, block: &mut Block) {
         // SAFETY: Block is a 64-byte array
-        unsafe { self.backend.write_ks_blocks(block.as_mut_ptr(), 1); }
+        unsafe {
+            self.backend.write_ks_blocks(block.as_mut_ptr(), 1);
+        }
         self.state[12] = self.state[12].wrapping_add(1);
     }
 
     #[inline(always)]
     fn gen_par_ks_blocks(&mut self, blocks: &mut ParBlocks<Self>) {
         // SAFETY: `ParBlocks` is a 256-byte 2D array.
-        unsafe { self.backend.write_ks_blocks(blocks.as_mut_ptr() as *mut u8, 4); }
+        unsafe {
+            self.backend
+                .write_ks_blocks(blocks.as_mut_ptr() as *mut u8, 4);
+        }
         self.state[12] = self.state[12].wrapping_add(4);
     }
 }

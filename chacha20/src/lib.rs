@@ -114,7 +114,7 @@
 pub use cipher;
 
 #[cfg(feature = "zeroize")]
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::{zeroize_flat_type, ZeroizeOnDrop};
 
 pub(crate) mod backends;
 #[cfg(feature = "cipher")]
@@ -183,11 +183,10 @@ impl Rounds for R20 {
 #[cfg(feature = "zeroize")]
 impl<R: Rounds, V: Variant> Drop for ChaChaCore<R, V> {
     fn drop(&mut self) {
-        let n = core::mem::size_of::<Self>();
-        unsafe {
-            //core::ptr::write_bytes(self, 0, n);
-            // TODO: zeroize self properly
-        }
+        // Safety:
+        //
+        // This is safe because ChaChaCore is flat, and it is being dropped.
+        unsafe { zeroize_flat_type(self) }
     }
 }
 

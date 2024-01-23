@@ -3,7 +3,7 @@ use cfg_if::cfg_if;
 #[cfg(feature = "cipher")]
 use cipher::{consts::U64, BlockSizeUser};
 
-use crate::{STATE_WORDS, Rounds, Variant};
+use crate::{Rounds, Variant, STATE_WORDS};
 
 cfg_if! {
     if #[cfg(chacha20_force_soft)] {
@@ -79,13 +79,13 @@ pub(crate) trait BackendType {
     fn new(state: &[u32; STATE_WORDS]) -> Self;
 
     fn update_state(&mut self, state: &[u32]);
-    
+
     fn increment_counter(&mut self, amount: i32);
 
     unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize);
 
-    /// Writes keystream blocks with alignment. Do not use for writing to unaligned 
-    /// destinations. This will default to the unaligned version for backends where 
+    /// Writes keystream blocks with alignment. Do not use for writing to unaligned
+    /// destinations. This will default to the unaligned version for backends where
     /// this is not necessary.
     #[cfg(feature = "rng")]
     unsafe fn write_ks_blocks_aligned(&mut self, dest_ptr: *mut u32, num_blocks: usize) {
@@ -94,9 +94,9 @@ pub(crate) trait BackendType {
 
     #[cfg(feature = "rng")]
     /// Generates `num_blocks * 64` bytes and blindly writes them to `dest_ptr`
-    /// 
+    ///
     /// # Safety
-    /// `dest_ptr` must have at least `num_blocks * 4` bytes available to be 
+    /// `dest_ptr` must have at least `num_blocks * 4` bytes available to be
     /// overwritten, or else it could produce undefined behavior
     fn rng_inner(&mut self, dest_ptr: *mut u32, num_blocks: usize) {
         unsafe {
@@ -104,7 +104,6 @@ pub(crate) trait BackendType {
         }
     }
 }
-
 
 #[cfg(feature = "cipher")]
 impl<R: Rounds, V: Variant> BlockSizeUser for ChaChaCore<R, V> {

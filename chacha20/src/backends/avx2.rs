@@ -1,4 +1,4 @@
-use crate::{Rounds, STATE_WORDS, Variant};
+use crate::{Rounds, Variant, STATE_WORDS};
 
 #[cfg(feature = "cipher")]
 use crate::chacha::Block;
@@ -10,9 +10,9 @@ use core::arch::x86::*;
 use core::arch::x86_64::*;
 
 #[cfg(feature = "cipher")]
-use cipher::{StreamBackend, 
-    consts::{U4, U64}, 
-    ParBlocks, ParBlocksSizeUser, BlockSizeUser, StreamClosure
+use cipher::{
+    consts::{U4, U64},
+    BlockSizeUser, ParBlocks, ParBlocksSizeUser, StreamBackend, StreamClosure,
 };
 
 use super::BackendType;
@@ -39,7 +39,7 @@ macro_rules! extract_1_block {
     };
 }
 
-/// Extracts a single block of output from a [__m256i; 4], and writes it to a 
+/// Extracts a single block of output from a [__m256i; 4], and writes it to a
 /// 16-byte aligned pointer.
 /// ### Parameters
 /// - `$block_ptr`: a `*mut __m128i` to write a block to
@@ -68,14 +68,14 @@ macro_rules! extract_2_blocks {
     ($block_ptr:expr, $block_pair:expr) => {
         let t: [__m128i; 8] = core::mem::transmute($block_pair);
         for i in 0..4 {
-            _mm_storeu_si128($block_ptr.add(i), t[i<<1]);
-            _mm_storeu_si128($block_ptr.add(4+i), t[(i<<1) + 1]);
+            _mm_storeu_si128($block_ptr.add(i), t[i << 1]);
+            _mm_storeu_si128($block_ptr.add(4 + i), t[(i << 1) + 1]);
         }
         $block_ptr = $block_ptr.add(8);
     };
 }
 
-/// Extracts 2 blocks of output from a [__m256i; 4], and writes it to a 
+/// Extracts 2 blocks of output from a [__m256i; 4], and writes it to a
 /// 16-byte aligned pointer.
 /// ### Parameters
 /// - `$block_ptr`: a `*mut __m128i` to write a block to
@@ -87,8 +87,8 @@ macro_rules! extract_2_blocks_aligned {
     ($block_ptr:expr, $block_pair:expr) => {
         let t: [__m128i; 8] = core::mem::transmute($block_pair);
         for i in 0..4 {
-            _mm_store_si128($block_ptr.add(i), t[i<<1]);
-            _mm_store_si128($block_ptr.add(4+i), t[(i<<1) + 1]);
+            _mm_store_si128($block_ptr.add(i), t[i << 1]);
+            _mm_store_si128($block_ptr.add(4 + i), t[(i << 1) + 1]);
         }
         $block_ptr = $block_ptr.add(8);
     };
@@ -102,7 +102,7 @@ pub(crate) struct Backend<R: Rounds, V: Variant> {
     block: usize,
     counter: u32,
     _pd: PhantomData<R>,
-    _variant: PhantomData<V>
+    _variant: PhantomData<V>,
 }
 
 impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
@@ -131,7 +131,7 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
                 block: 4,
                 counter: 0,
                 _pd: PhantomData,
-                _variant: PhantomData
+                _variant: PhantomData,
             }
         }
     }
@@ -160,15 +160,15 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
             }
         }
     }
-    
+
     /// Generates `num_blocks` blocks and blindly writes them to `dest_ptr` recursively
-    /// 
+    ///
     /// # Safety
-    /// `dest_ptr` must have at least `num_blocks * 64` bytes available to be overwritten, or else it 
+    /// `dest_ptr` must have at least `num_blocks * 64` bytes available to be overwritten, or else it
     /// could result in a segmentation fault or undesired behavior
     unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
         let mut _block_ptr = dest_ptr as *mut __m128i;
-        
+
         if self.block == Self::PAR_BLOCKS {
             self.rounds();
             self.block = 0;
@@ -193,15 +193,15 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     }
 
     /// Generates `num_blocks` blocks and blindly writes them to `dest_ptr` recursively
-    /// 
+    ///
     /// # Safety
-    /// - `dest_ptr` must have at least `num_blocks * 64` bytes available to be overwritten, or else it 
+    /// - `dest_ptr` must have at least `num_blocks * 64` bytes available to be overwritten, or else it
     /// could result in a segmentation fault or undesired behavior
     /// - `dest_ptr` should be aligned on a 16-byte boundary
     #[cfg(feature = "rng")]
     unsafe fn write_ks_blocks_aligned(&mut self, dest_ptr: *mut u32, num_blocks: usize) {
         let mut _block_ptr = dest_ptr as *mut __m128i;
-        
+
         if self.block == Self::PAR_BLOCKS {
             self.rounds();
             self.block = 0;
@@ -228,7 +228,7 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     #[cfg(feature = "rng")]
     #[inline]
     fn rng_inner(&mut self, mut dest_ptr: *mut u32, mut num_blocks: usize) {
-        // limiting recursion depth to a maximum of 3 recursive calls to try 
+        // limiting recursion depth to a maximum of 3 recursive calls to try
         // to reduce memory usage
         unsafe {
             while num_blocks > 4 {
@@ -278,14 +278,14 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
     #[inline]
     #[cfg(feature = "cipher")]
     #[target_feature(enable = "avx2")]
-    pub(crate) unsafe fn inner<F>(&mut self, state_counter: &mut u32, f: F) 
+    pub(crate) unsafe fn inner<F>(&mut self, state_counter: &mut u32, f: F)
     where
         R: Rounds,
         F: StreamClosure<BlockSize = U64>,
-        V: Variant
+        V: Variant,
     {
         f.call(self);
-        // this seems to be the only way to keep track of the counter since 
+        // this seems to be the only way to keep track of the counter since
         // `f.call(self)` can run `gen_par_ks_blocks()` multiple times
         *state_counter = self.counter;
     }
@@ -449,7 +449,7 @@ mod test {
 
     #[test]
     fn test_set_block_pos() {
-        let mut test_state: [u32; 16] = 
+        let mut test_state: [u32; 16] =
         [
                 0x0504_0706, 0x0605_0407, 0x0d0c_0f0e, 0x0e0d_0c0f,
                 384823354u32, 12424524u32, 3138953u32, 8338348u32,
@@ -471,15 +471,15 @@ mod test {
 
             assert_eq!(
                 [
-                    ctr00, 
-                    ctr01, 
-                    ctr02, 
+                    ctr00,
+                    ctr01,
+                    ctr02,
                     ctr03
-                    ], 
+                    ],
                 [
-                    block_pos, 
-                    block_pos + 1, 
-                    block_pos + 2, 
+                    block_pos,
+                    block_pos + 1,
+                    block_pos + 2,
                     block_pos + 3
                     ]
             );
@@ -501,15 +501,15 @@ mod test {
 
             assert_eq!(
                 [
-                    ctr00, 
-                    ctr01, 
-                    ctr02, 
+                    ctr00,
+                    ctr01,
+                    ctr02,
                     ctr03
-                    ], 
+                    ],
                 [
-                    block_pos, 
-                    block_pos + 1, 
-                    block_pos + 2, 
+                    block_pos,
+                    block_pos + 1,
+                    block_pos + 2,
                     block_pos + 3
                     ]
             );
@@ -520,7 +520,7 @@ mod test {
     #[test]
     /// this test is to figure out how the state is represented in an __m128i
     fn debugging_simd() {
-        let mut state: [u32; 16] = 
+        let mut state: [u32; 16] =
         [
             1111, 2222, 3333, 4444,
             5555, 6666, 7777, 8888,
@@ -621,7 +621,7 @@ mod test {
             for i in 0..N {
                 backend.ctr[i] = _mm256_and_si256(backend.ctr[i], mask);
                 backend.ctr[i] = _mm256_add_epi32(
-                    backend.ctr[i], 
+                    backend.ctr[i],
                     _mm256_setr_epi32(0, 1414, 1515, 1616, 0, 1414, 1515, 1616)
                 );
             }

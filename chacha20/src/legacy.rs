@@ -3,8 +3,8 @@
 use crate::chacha::Key;
 use crate::{ChaChaCore, R20};
 use cipher::{
-    consts::{U32, U8},
     array::Array,
+    consts::{U32, U8},
     IvSizeUser, KeyIvInit, KeySizeUser, StreamCipherCoreWrapper,
 };
 

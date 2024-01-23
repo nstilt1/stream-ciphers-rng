@@ -2,9 +2,11 @@
 //! fallback to a portable version when they're unavailable.
 
 use super::{avx2, soft, sse2};
-use crate::{Rounds, STATE_WORDS, CONSTANTS, impl_chacha_core, variants::Variant, backends::BackendType};
-use core::mem::ManuallyDrop;
+use crate::{
+    backends::BackendType, impl_chacha_core, variants::Variant, Rounds, CONSTANTS, STATE_WORDS,
+};
 use cfg_if::cfg_if;
+use core::mem::ManuallyDrop;
 
 cpufeatures::new!(avx2_cpuid, "avx2");
 cpufeatures::new!(sse2_cpuid, "sse2");

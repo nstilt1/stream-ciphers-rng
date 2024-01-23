@@ -11,7 +11,7 @@ use crate::chacha::Block;
 #[cfg(feature = "cipher")]
 use cipher::{
     consts::{U1, U64},
-    BlockSizeUser, ParBlocksSizeUser, StreamBackend, StreamClosure
+    BlockSizeUser, ParBlocksSizeUser, StreamBackend, StreamClosure,
 };
 
 use super::BackendType;
@@ -27,7 +27,7 @@ cfg_if! {
 
         #[derive(Clone)]
         pub struct ChaChaCore<R: Rounds, V: Variant> {
-            pub(crate) state: [u32; STATE_WORDS], 
+            pub(crate) state: [u32; STATE_WORDS],
             backend: Backend<R, V>
         }
 
@@ -90,11 +90,11 @@ cfg_if! {
 }
 
 #[derive(Clone)]
-pub(crate) struct Backend<R: Rounds, V: Variant>{
+pub(crate) struct Backend<R: Rounds, V: Variant> {
     state: [u32; 16],
     results: [u32; 16],
     _r: PhantomData<R>,
-    _variant: PhantomData<V>
+    _variant: PhantomData<V>,
 }
 
 #[cfg(feature = "cipher")]
@@ -114,7 +114,7 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
             state: *state,
             results: [0u32; 16],
             _r: PhantomData,
-            _variant: PhantomData
+            _variant: PhantomData,
         }
     }
 
@@ -185,11 +185,11 @@ impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
 impl<R: Rounds, V: Variant> Backend<R, V> {
     #[inline]
     #[cfg(feature = "cipher")]
-    pub(crate) fn inner<F>(&mut self, state_counter: &mut u32, f: F) 
+    pub(crate) fn inner<F>(&mut self, state_counter: &mut u32, f: F)
     where
         R: Rounds,
         F: StreamClosure<BlockSize = U64>,
-        V: Variant
+        V: Variant,
     {
         f.call(self);
         *state_counter = self.state[12]

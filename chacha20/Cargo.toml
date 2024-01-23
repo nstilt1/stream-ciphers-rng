@@ -21,9 +21,9 @@ categories = ["cryptography", "no-std"]
 [dependencies]
 cfg-if = "1"
 cipher = { version = "0.5.0-pre.2", optional = true}
-rand_core = { version = "0.7", path = "../../rand/rand_core", optional = true, default-features = false, features = ["getrandom"] }
+rand_core = { version = "0.6.4", optional = true, features = ["getrandom"] }
 serde = { version = "1.0", features = ["derive"], optional = true }
-zeroize = { version = "1.7.0", optional = true, features = ["aarch64"] }
+zeroize = { version = "1.7.0", path = "../../utils/zeroize", optional = true, features = ["aarch64"] }
 [target.'cfg(any(target_arch = "x86_64", target_arch = "x86"))'.dependencies]
 cpufeatures = "0.2"
 
@@ -40,7 +40,7 @@ rng = ["rand_core"]
 serde1 = ["serde"]
 std = ["cipher/std"]
 xchacha = ["cipher"]
-zeroize = ["dep:zeroize", "cipher?/zeroize", "rand_core?/zeroize"]
+zeroize = ["dep:zeroize", "cipher?/zeroize"]
 
 [package.metadata.docs.rs]
 all-features = true

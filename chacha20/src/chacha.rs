@@ -1,7 +1,7 @@
 pub use cipher::KeyIvInit;
 use cipher::{
-    consts::{U12, U32, U64},
     array::Array,
+    consts::{U12, U32, U64},
     IvSizeUser, KeySizeUser, StreamCipherCoreWrapper,
 };
 

@@ -1,4 +1,4 @@
-use crate::{Rounds, STATE_WORDS, Variant};
+use crate::{Rounds, Variant, STATE_WORDS};
 use core::marker::PhantomData;
 
 #[cfg(feature = "cipher")]
@@ -11,9 +11,8 @@ use core::arch::x86_64::*;
 
 #[cfg(feature = "cipher")]
 use cipher::{
-    BlockSizeUser, ParBlocksSizeUser, StreamBackend,
     consts::{U1, U64},
-    StreamClosure
+    BlockSizeUser, ParBlocksSizeUser, StreamBackend, StreamClosure,
 };
 
 use super::BackendType;
@@ -23,7 +22,7 @@ pub(crate) struct Backend<R: Rounds, V: Variant> {
     v: [__m128i; 4],
     res: [__m128i; 4],
     _pd: PhantomData<R>,
-    _variant: PhantomData<V>
+    _variant: PhantomData<V>,
 }
 
 impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
@@ -43,10 +42,10 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
                     _mm_setzero_si128(),
                     _mm_setzero_si128(),
                     _mm_setzero_si128(),
-                    _mm_setzero_si128()
+                    _mm_setzero_si128(),
                 ],
                 _pd: PhantomData,
-                _variant: PhantomData
+                _variant: PhantomData,
             }
         }
     }
@@ -59,15 +58,13 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     }
 
     fn increment_counter(&mut self, amount: i32) {
-        unsafe {
-            self.v[3] = _mm_add_epi32(self.v[3], _mm_set_epi32(0, 0, 0, amount))
-        }
+        unsafe { self.v[3] = _mm_add_epi32(self.v[3], _mm_set_epi32(0, 0, 0, amount)) }
     }
 
     /// Generates a single block and blindly writes it to `dest_ptr`
-    /// 
+    ///
     /// # Safety
-    /// `dest_ptr` must have at least 64 bytes available to be overwritten, or else it 
+    /// `dest_ptr` must have at least 64 bytes available to be overwritten, or else it
     /// could cause a segmentation fault and/or undesired behavior
     #[inline(always)]
     unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
@@ -84,9 +81,9 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     }
 
     /// Generates a single block and blindly writes it to `dest_ptr`
-    /// 
+    ///
     /// # Safety
-    /// - `dest_ptr` must have at least 64 bytes available to be overwritten, or else it 
+    /// - `dest_ptr` must have at least 64 bytes available to be overwritten, or else it
     /// could cause a segmentation fault and/or undesired behavior
     /// - `dest_ptr` should be aligned on a 16-byte boundary
     #[cfg(feature = "rng")]
@@ -119,11 +116,11 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
     #[inline]
     #[cfg(feature = "cipher")]
     #[target_feature(enable = "sse2")]
-    pub(crate) unsafe fn inner<F>(&mut self, state_counter: &mut u32, f: F) 
+    pub(crate) unsafe fn inner<F>(&mut self, state_counter: &mut u32, f: F)
     where
         R: Rounds,
         F: StreamClosure<BlockSize = U64>,
-        V: Variant
+        V: Variant,
     {
         f.call(self);
         *state_counter = _mm_extract_epi32::<0>(self.v[3]) as u32;
@@ -153,8 +150,6 @@ impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
         }
     }
 }
-
-
 
 #[inline]
 #[target_feature(enable = "sse2")]
