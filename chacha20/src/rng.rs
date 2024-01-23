@@ -17,9 +17,7 @@ use rand_core::{
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[cfg(feature = "zeroize")]
-use core::ops::{Deref, DerefMut};
-#[cfg(feature = "zeroize")]
-use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::{variants::Ietf, ChaChaCore, R12, R20, R8};
 
@@ -196,50 +194,35 @@ cfg_if! {
 /// SIMD performance.
 #[repr(align(16))]
 #[derive(Clone)]
-pub struct BlockRngResults {
-    #[cfg(feature = "zeroize")]
-    b: Zeroizing<[u32; BUFFER_SIZE]>,
-    #[cfg(not(feature = "zeroize"))]
-    b: [u32; BUFFER_SIZE],
-}
+pub struct BlockRngResults ([u32; BUFFER_SIZE]);
 
 impl AsRef<[u32]> for BlockRngResults {
-    #[cfg(feature = "zeroize")]
     fn as_ref(&self) -> &[u32] {
-        self.b.deref()
-    }
-    #[cfg(not(feature = "zeroize"))]
-    fn as_ref(&self) -> &[u32] {
-        &self.b
+        &self.0
     }
 }
 
 impl AsMut<[u32]> for BlockRngResults {
-    #[cfg(feature = "zeroize")]
     fn as_mut(&mut self) -> &mut [u32] {
-        self.b.deref_mut()
-    }
-    #[cfg(not(feature = "zeroize"))]
-    fn as_mut(&mut self) -> &mut [u32] {
-        self.b.as_mut()
+        &mut self.0
     }
 }
 
 impl Default for BlockRngResults {
-    #[cfg(feature = "zeroize")]
     fn default() -> Self {
-        Self {
-            b: Zeroizing::new([0u32; BUFFER_SIZE]),
-        }
-    }
-
-    #[cfg(not(feature = "zeroize"))]
-    fn default() -> Self {
-        Self {
-            b: [0u32; BUFFER_SIZE],
-        }
+        Self([0u32; BUFFER_SIZE])
     }
 }
+
+#[cfg(feature = "zeroize")]
+impl Drop for BlockRngResults {
+    fn drop(&mut self) {
+        self.0.zeroize();
+    }
+}
+
+#[cfg(feature = "zeroize")]
+impl ZeroizeOnDrop for BlockRngResults {}
 
 // NB. this must remain consistent with some currently hard-coded numbers in this module
 const BUF_BLOCKS: u8 = BUFFER_SIZE as u8 >> 4;
@@ -328,7 +311,7 @@ macro_rules! impl_chacha_rng {
             type Results = BlockRngResults;
             #[inline]
             fn generate(&mut self, r: &mut Self::Results) {
-                unsafe { self.0.generate(r.b.as_mut_ptr(), BUF_BLOCKS as usize) }
+                unsafe { self.0.generate(r.0.as_mut_ptr(), BUF_BLOCKS as usize) }
             }
         }
 
