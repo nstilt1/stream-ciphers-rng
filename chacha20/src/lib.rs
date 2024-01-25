@@ -185,7 +185,8 @@ impl<R: Rounds, V: Variant> Drop for ChaChaCore<R, V> {
     fn drop(&mut self) {
         // Safety:
         //
-        // This is safe because ChaChaCore is flat, and it is being dropped.
+        // This is safe because ChaChaCore is flat, it does not contain references, and 
+        // all 0s is valid for the type.
         unsafe { zeroize_flat_type(self) }
     }
 }

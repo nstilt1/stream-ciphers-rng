@@ -15,8 +15,6 @@ use cipher::{
     BlockSizeUser, ParBlocks, ParBlocksSizeUser, StreamBackend, StreamClosure,
 };
 
-use super::BackendType;
-
 /// Number of blocks processed in parallel.
 const PAR_BLOCKS: usize = 4;
 /// Number of `__m256i` to store parallel blocks.
@@ -98,18 +96,16 @@ macro_rules! extract_2_blocks_aligned {
 pub(crate) struct Backend<R: Rounds, V: Variant> {
     v: [__m256i; 3],
     ctr: [__m256i; N],
-    pub(crate) results: [[__m256i; 4]; N],
+    results: [[__m256i; 4]; N],
     block: usize,
     counter: u32,
     _pd: PhantomData<R>,
     _variant: PhantomData<V>,
 }
 
-impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
-    const PAR_BLOCKS: usize = 4;
-
-    #[inline]
-    fn new(state: &[u32; STATE_WORDS]) -> Self {
+impl<R: Rounds, V: Variant> Backend<R, V> {
+    #[inline(always)]
+    pub(super) fn new(state: &[u32; STATE_WORDS]) -> Self {
         unsafe {
             let state_ptr = state.as_ptr() as *const __m128i;
             let v = [
@@ -137,7 +133,8 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     }
 
     /// Updates the 4th row of the ChaCha State
-    fn update_state(&mut self, state: &[u32]) {
+    #[inline(always)]
+    pub(super) fn update_state(&mut self, state: &[u32]) {
         unsafe {
             let state_ptr = state.as_ptr() as *const __m128i;
             let mut c = _mm256_broadcastsi128_si256(_mm_loadu_si128(state_ptr.add(3)));
@@ -152,7 +149,7 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     }
 
     /// Increments the counter by `amount`
-    #[inline]
+    #[inline(always)]
     fn increment_counter(&mut self, amount: i32) {
         unsafe {
             for c in self.ctr.iter_mut() {
@@ -169,7 +166,7 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
         let mut _block_ptr = dest_ptr as *mut __m128i;
 
-        if self.block == Self::PAR_BLOCKS {
+        if self.block == PAR_BLOCKS {
             self.rounds();
             self.block = 0;
         }
@@ -199,10 +196,10 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     /// could result in a segmentation fault or undesired behavior
     /// - `dest_ptr` should be aligned on a 16-byte boundary
     #[cfg(feature = "rng")]
-    unsafe fn write_ks_blocks_aligned(&mut self, dest_ptr: *mut u32, num_blocks: usize) {
+    unsafe fn write_ks_blocks_aligned(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
         let mut _block_ptr = dest_ptr as *mut __m128i;
 
-        if self.block == Self::PAR_BLOCKS {
+        if self.block == PAR_BLOCKS {
             self.rounds();
             self.block = 0;
         }
@@ -212,7 +209,7 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
             if num_blocks >= 2 {
                 extract_2_blocks_aligned!(_block_ptr, self.results[self.block >> 1]);
                 self.block += 2;
-                self.write_ks_blocks(_block_ptr as *mut u8, num_blocks - 2);
+                self.write_ks_blocks_aligned(_block_ptr as *mut u8, num_blocks - 2);
             } else if num_blocks == 1 {
                 extract_1_block_aligned!(_block_ptr, self.results[self.block >> 1], 0);
                 self.block += 1;
@@ -221,23 +218,23 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
             // self.block is either 1 or 3
             extract_1_block_aligned!(_block_ptr, self.results[self.block >> 1], 1);
             self.block += 1;
-            self.write_ks_blocks(_block_ptr as *mut u8, num_blocks - 1);
+            self.write_ks_blocks_aligned(_block_ptr as *mut u8, num_blocks - 1);
         } // else: num_blocks == 0, recursion ends
     }
 
     #[cfg(feature = "rng")]
     #[inline]
-    fn rng_inner(&mut self, mut dest_ptr: *mut u32, mut num_blocks: usize) {
+    pub(super) fn rng_inner(&mut self, mut dest_ptr: *mut u32, mut num_blocks: usize) {
         // limiting recursion depth to a maximum of 3 recursive calls to try
         // to reduce memory usage
         unsafe {
             while num_blocks > 4 {
-                self.write_ks_blocks_aligned(dest_ptr, 4);
+                self.write_ks_blocks_aligned(dest_ptr as *mut u8, 4);
                 dest_ptr = dest_ptr.add(64);
                 num_blocks -= 4;
             }
             if num_blocks > 0 {
-                self.write_ks_blocks_aligned(dest_ptr, num_blocks)
+                self.write_ks_blocks_aligned(dest_ptr as *mut u8, num_blocks)
             }
             self.counter = self.counter.wrapping_add(num_blocks as u32);
         }
@@ -308,7 +305,7 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
             self.results[i][3] = _mm256_add_epi32(self.results[i][3], self.ctr[i]);
         }
 
-        self.increment_counter(Self::PAR_BLOCKS as i32);
+        self.increment_counter(PAR_BLOCKS as i32);
     }
 }
 

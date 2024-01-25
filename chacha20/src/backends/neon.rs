@@ -3,7 +3,7 @@
 //! Adapted from the Crypto++ `chacha_simd` implementation by Jack Lloyd and
 //! Jeffrey Walton (public domain).
 
-use crate::{backends::BackendType, impl_chacha_core, Rounds, Variant, CONSTANTS, STATE_WORDS};
+use crate::{impl_chacha_core, Rounds, Variant, CONSTANTS, STATE_WORDS};
 use core::{arch::aarch64::*, marker::PhantomData};
 
 #[cfg(feature = "cipher")]
@@ -123,10 +123,9 @@ macro_rules! add_assign_vec {
     };
 }
 
-impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
-    const PAR_BLOCKS: usize = 4;
+impl<R: Rounds, V: Variant> Backend<R, V> {
     #[inline]
-    fn new(state: &[u32; STATE_WORDS]) -> Self {
+    pub(super) fn new(state: &[u32; STATE_WORDS]) -> Self {
         unsafe {
             let state = [
                 vld1q_u32(state.as_ptr().offset(0)),
@@ -157,7 +156,7 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     }
 
     #[inline]
-    fn update_state(&mut self, state: &[u32]) {
+    pub(super) fn update_state(&mut self, state: &[u32]) {
         unsafe {
             self.state[3] = vld1q_u32(state.as_ptr().offset(12));
         }
@@ -172,8 +171,7 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
         }
     }
 
-    //#[inline(always)]
-    /// Generates `num_blocks` blocks and blindly writes them to `dest_ptr`
+    /// Generates `num_blocks` blocks and blindly writes them to `dest_ptr` recursively.
     ///
     /// `num_blocks` must be greater than 0, and less than or equal to 4.
     ///
@@ -222,9 +220,7 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
             }
         }
     }
-}
 
-impl<R: Rounds, V: Variant> Backend<R, V> {
     #[inline]
     #[target_feature(enable = "neon")]
     unsafe fn rounds(&mut self) {
@@ -313,8 +309,9 @@ unsafe fn add_xor_rot(blocks: &mut [[uint32x4_t; 4]; 4]) {
     }
     for block in blocks.iter_mut() {
         // this part of the code cannot be reduced much more without having
-        // to deal with some problems regarding `rotate_left` requiring the second
-        // argument to be a const, and const arrays cannot be indexed by non-consts
+        // to deal with some problems regarding the intrinsics within `rotate_left` 
+        // requiring the second argument to be a const, and const arrays cannot be 
+        // indexed by non-consts
         add_assign_vec!(block[0], block[1]);
         xor_assign_vec!(block[3], block[0]);
         rotate_left!(block[3], 16);

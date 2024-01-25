@@ -3,7 +3,7 @@
 
 use super::{avx2, soft, sse2};
 use crate::{
-    backends::BackendType, impl_chacha_core, variants::Variant, Rounds, CONSTANTS, STATE_WORDS,
+    impl_chacha_core, variants::Variant, Rounds, CONSTANTS, STATE_WORDS,
 };
 use cfg_if::cfg_if;
 use core::mem::ManuallyDrop;

@@ -11,7 +11,7 @@ publish = false
 
 [dependencies]
 criterion = "0.5"
-chacha20 = { path = "../chacha20/", features = ["rng", "zeroize"] }
+chacha20 = { path = "../chacha20/", features = ["rng"] }
 
 [target.'cfg(any(target_arch = "x86_64", target_arch = "x86", all(target_arch = "aarch64", target_os = "linux")))'.dependencies]
 criterion-cycles-per-byte = "0.6.0"

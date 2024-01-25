@@ -72,39 +72,6 @@ macro_rules! impl_chacha_core {
     };
 }
 
-/// A set of common methods that the backends implement.
-pub(crate) trait BackendType {
-    const PAR_BLOCKS: usize;
-
-    fn new(state: &[u32; STATE_WORDS]) -> Self;
-
-    fn update_state(&mut self, state: &[u32]);
-
-    fn increment_counter(&mut self, amount: i32);
-
-    unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize);
-
-    /// Writes keystream blocks with alignment. Do not use for writing to unaligned
-    /// destinations. This will default to the unaligned version for backends where
-    /// this is not necessary.
-    #[cfg(feature = "rng")]
-    unsafe fn write_ks_blocks_aligned(&mut self, dest_ptr: *mut u32, num_blocks: usize) {
-        self.write_ks_blocks(dest_ptr as *mut u8, num_blocks)
-    }
-
-    #[cfg(feature = "rng")]
-    /// Generates `num_blocks * 64` bytes and blindly writes them to `dest_ptr`
-    ///
-    /// # Safety
-    /// `dest_ptr` must have at least `num_blocks * 4` bytes available to be
-    /// overwritten, or else it could produce undefined behavior
-    fn rng_inner(&mut self, dest_ptr: *mut u32, num_blocks: usize) {
-        unsafe {
-            self.write_ks_blocks(dest_ptr as *mut u8, num_blocks);
-        }
-    }
-}
-
 #[cfg(feature = "cipher")]
 impl<R: Rounds, V: Variant> BlockSizeUser for ChaChaCore<R, V> {
     type BlockSize = U64;

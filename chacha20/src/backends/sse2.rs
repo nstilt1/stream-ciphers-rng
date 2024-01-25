@@ -15,20 +15,17 @@ use cipher::{
     BlockSizeUser, ParBlocksSizeUser, StreamBackend, StreamClosure,
 };
 
-use super::BackendType;
-
 #[derive(Clone)]
-pub(crate) struct Backend<R: Rounds, V: Variant> {
+pub(super) struct Backend<R: Rounds, V: Variant> {
     v: [__m128i; 4],
     res: [__m128i; 4],
     _pd: PhantomData<R>,
     _variant: PhantomData<V>,
 }
 
-impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
-    const PAR_BLOCKS: usize = 1;
-    #[inline]
-    fn new(state: &[u32; STATE_WORDS]) -> Self {
+impl<R: Rounds, V: Variant> Backend<R, V> {
+    #[inline(always)]
+    pub(super) fn new(state: &[u32; STATE_WORDS]) -> Self {
         unsafe {
             let state_ptr = state.as_ptr() as *const __m128i;
             Self {
@@ -50,34 +47,17 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
         }
     }
 
-    fn update_state(&mut self, state: &[u32]) {
+    #[inline(always)]
+    pub(super) fn update_state(&mut self, state: &[u32]) {
         unsafe {
             let state_ptr = state.as_ptr() as *const __m128i;
             self.v[3] = _mm_loadu_si128(state_ptr.add(3))
         }
     }
 
+    #[inline(always)]
     fn increment_counter(&mut self, amount: i32) {
         unsafe { self.v[3] = _mm_add_epi32(self.v[3], _mm_set_epi32(0, 0, 0, amount)) }
-    }
-
-    /// Generates a single block and blindly writes it to `dest_ptr`
-    ///
-    /// # Safety
-    /// `dest_ptr` must have at least 64 bytes available to be overwritten, or else it
-    /// could cause a segmentation fault and/or undesired behavior
-    #[inline(always)]
-    unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
-        let mut block_ptr = dest_ptr as *mut __m128i;
-        for _i in 0..num_blocks {
-            self.rounds();
-            self.increment_counter(1);
-
-            for i in 0..4 {
-                _mm_storeu_si128(block_ptr.add(i), self.res[i]);
-            }
-            block_ptr = block_ptr.add(4);
-        }
     }
 
     /// Generates a single block and blindly writes it to `dest_ptr`
@@ -88,7 +68,7 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
     /// - `dest_ptr` should be aligned on a 16-byte boundary
     #[cfg(feature = "rng")]
     #[inline(always)]
-    unsafe fn write_ks_blocks_aligned(&mut self, dest_ptr: *mut u32, num_blocks: usize) {
+    pub(super) unsafe fn write_ks_blocks_aligned(&mut self, dest_ptr: *mut u32, num_blocks: usize) {
         let mut block_ptr = dest_ptr as *mut __m128i;
         for _i in 0..num_blocks {
             self.rounds();
@@ -99,6 +79,32 @@ impl<R: Rounds, V: Variant> BackendType for Backend<R, V> {
             }
             block_ptr = block_ptr.add(4);
         }
+    }
+    
+    #[inline]
+    #[target_feature(enable = "sse2")]
+    unsafe fn rounds(&mut self) {
+        self.res = self.v;
+        for _ in 0..R::COUNT {
+            double_quarter_round(&mut self.res);
+        }
+
+        for i in 0..4 {
+            self.res[i] = _mm_add_epi32(self.res[i], self.v[i]);
+        }
+    }
+
+    #[inline]
+    #[cfg(feature = "cipher")]
+    #[target_feature(enable = "sse2")]
+    pub(super) unsafe fn inner<F>(&mut self, state_counter: &mut u32, f: F)
+    where
+        R: Rounds,
+        F: StreamClosure<BlockSize = U64>,
+        V: Variant,
+    {
+        f.call(self);
+        *state_counter = _mm_extract_epi32::<0>(self.v[3]) as u32;
     }
 }
 
@@ -112,41 +118,18 @@ impl<R: Rounds, V: Variant> ParBlocksSizeUser for Backend<R, V> {
 }
 
 #[cfg(feature = "cipher")]
-impl<R: Rounds, V: Variant> Backend<R, V> {
-    #[inline]
-    #[cfg(feature = "cipher")]
-    #[target_feature(enable = "sse2")]
-    pub(crate) unsafe fn inner<F>(&mut self, state_counter: &mut u32, f: F)
-    where
-        R: Rounds,
-        F: StreamClosure<BlockSize = U64>,
-        V: Variant,
-    {
-        f.call(self);
-        *state_counter = _mm_extract_epi32::<0>(self.v[3]) as u32;
-    }
-
-    #[inline]
-    #[target_feature(enable = "sse2")]
-    unsafe fn rounds(&mut self) {
-        self.res = self.v;
-        for _ in 0..R::COUNT {
-            double_quarter_round(&mut self.res);
-        }
-
-        for i in 0..4 {
-            self.res[i] = _mm_add_epi32(self.res[i], self.v[i]);
-        }
-    }
-}
-
-#[cfg(feature = "cipher")]
 impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
     #[inline(always)]
     fn gen_ks_block(&mut self, block: &mut Block) {
-        // SAFETY: `Block` is a 64-byte array
         unsafe {
-            self.write_ks_blocks(block.as_mut_ptr(), 1);
+            let dest_ptr = block.as_mut_ptr() as *mut __m128i;
+        
+            self.rounds();
+            self.increment_counter(1);
+
+            for i in 0..4 {
+                _mm_storeu_si128(dest_ptr.add(i), self.res[i]);
+            }
         }
     }
 }

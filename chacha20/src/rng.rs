@@ -24,6 +24,12 @@ use crate::{variants::Ietf, ChaChaCore, R12, R20, R8};
 // number of 32-bit words per ChaCha block (fixed by algorithm definition)
 const BLOCK_WORDS: u8 = 16;
 
+/// The amount of `u32` words in the RNG's Buffer
+const BUFFER_SIZE: u8 = BLOCK_WORDS * 4;
+
+// NB. this must remain consistent with some currently hard-coded numbers in this module
+const BUF_BLOCKS: u8 = 4;
+
 /// The seed for ChaCha20. Implements ZeroizeOnDrop when the
 /// zeroize feature is enabled.
 #[derive(PartialEq, Eq)]
@@ -158,43 +164,11 @@ impl From<[u8; 4]> for BlockPos {
     }
 }
 
-use cfg_if::cfg_if;
-
-// note: this "works" in the sense that whichever target it is compiled for
-// will have the proper BUFFER_SIZE; however, if it is compiled for
-// avx2 and then packaged in some software that ends up on a lot of computers,
-// x86/x86_64 computers that don't have avx2 will have a buffer of [u32; 64]
-//
-// it will still function, but it is not optimal
-cfg_if! {
-    if #[cfg(chacha20_force_soft)] {
-        const BUFFER_SIZE: usize = BLOCK_WORDS as usize;
-    } else if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
-        cfg_if! {
-            if #[cfg(chacha20_force_avx2)] {
-                const BUFFER_SIZE: usize = BLOCK_WORDS as usize * 4;
-            } else if #[cfg(chacha20_force_sse2)] {
-                const BUFFER_SIZE: usize = BLOCK_WORDS as usize;
-            } else if #[cfg(target_feature = "avx2")] {
-                const BUFFER_SIZE: usize = BLOCK_WORDS as usize * 4;
-            } else if #[cfg(target_feature = "sse2")] {
-                const BUFFER_SIZE: usize = BLOCK_WORDS as usize;
-            } else {
-                const BUFFER_SIZE: usize = BLOCK_WORDS as usize;
-            }
-        }
-    } else if #[cfg(all(chacha20_force_neon, target_arch = "aarch64", target_feature = "neon"))] {
-        const BUFFER_SIZE: usize = BLOCK_WORDS as usize * 4;
-    } else {
-        const BUFFER_SIZE: usize = BLOCK_WORDS as usize;
-    }
-}
-
 /// The results buffer. Aligned by 16-byte boundaries to try to increase
 /// SIMD performance.
 #[repr(align(16))]
 #[derive(Clone)]
-pub struct BlockRngResults ([u32; BUFFER_SIZE]);
+pub struct BlockRngResults ([u32; BUFFER_SIZE as usize]);
 
 impl AsRef<[u32]> for BlockRngResults {
     fn as_ref(&self) -> &[u32] {
@@ -210,7 +184,7 @@ impl AsMut<[u32]> for BlockRngResults {
 
 impl Default for BlockRngResults {
     fn default() -> Self {
-        Self([0u32; BUFFER_SIZE])
+        Self([0u32; BUFFER_SIZE as usize])
     }
 }
 
@@ -223,9 +197,6 @@ impl Drop for BlockRngResults {
 
 #[cfg(feature = "zeroize")]
 impl ZeroizeOnDrop for BlockRngResults {}
-
-// NB. this must remain consistent with some currently hard-coded numbers in this module
-const BUF_BLOCKS: u8 = BUFFER_SIZE as u8 >> 4;
 
 macro_rules! impl_chacha_rng {
     ($ChaChaXRng:ident, $ChaChaXCore:ident, $rounds:ident, $abst: ident) => {
@@ -445,7 +416,7 @@ macro_rules! impl_chacha_rng {
                 let stream: StreamId = stream.into();
                 self.rng.core.0.set_nonce(stream.0);
 
-                if self.rng.index() != BUFFER_SIZE {
+                if self.rng.index() != BUFFER_SIZE as usize {
                     self.rng.generate_and_set(self.rng.index());
                 }
             }
