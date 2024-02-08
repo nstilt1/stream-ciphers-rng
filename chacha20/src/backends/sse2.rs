@@ -15,10 +15,16 @@ use cipher::{
     BlockSizeUser, ParBlocksSizeUser, StreamBackend, StreamClosure,
 };
 
+/// Number of blocks processed in parallel.
+const PAR_BLOCKS: usize = 4;
+
 #[derive(Clone)]
 pub(super) struct Backend<R: Rounds, V: Variant> {
     state: [__m128i; 4],
     res: [[__m128i; 4]; 4],
+    // a separate counter because `cipher`'s `StreamBackend` is tough
+    // to keep count with
+    counter: u32,
     block_index: usize,
     _pd: PhantomData<R>,
     _variant: PhantomData<V>,
@@ -62,6 +68,7 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
                 ],
                 ],
                 block_index: 4,
+                counter: 0,
                 _pd: PhantomData,
                 _variant: PhantomData,
             }
@@ -73,7 +80,8 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
         unsafe {
             let state_ptr = state.as_ptr() as *const __m128i;
             self.state[3] = _mm_loadu_si128(state_ptr.add(3));
-            self.block_index = 4;
+            self.block_index = PAR_BLOCKS;
+            self.counter = state[12]
         }
     }
 
@@ -82,16 +90,17 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
         unsafe { self.state[3] = _mm_add_epi32(self.state[3], _mm_set_epi32(0, 0, 0, amount)) }
     }
 
-    /// Generates a single block and blindly writes it to `dest_ptr`
+    /// Generates keystream blocks recursively and blindly writes it to `dest_ptr`.
     ///
     /// # Safety
     /// - `dest_ptr` must have at least 64 bytes available to be overwritten, or else it
-    /// could cause a segmentation fault and/or undesired behavior
-    /// - `dest_ptr` should be aligned on a 16-byte boundary
-    #[cfg(feature = "rng")]
-    pub(super) unsafe fn write_ks_blocks_aligned(&mut self, dest_ptr: *mut u32, mut num_blocks: usize) {
+    ///   could cause a segmentation fault and/or undesired behavior
+    /// - trying to call this method with a large `num_blocks` could result in a stack 
+    ///   overflow. By using `inner` or `rng_inner` methods that limit this parameter, 
+    ///   stack overflows can be avoided.
+    pub(super) unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, mut num_blocks: usize) {
         let mut block_ptr = dest_ptr as *mut __m128i;
-        if self.block_index >= 4 {
+        if self.block_index >= PAR_BLOCKS {
             self.rounds();
             self.block_index = 0
         }
@@ -99,7 +108,7 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
         let max_block_index = 4.min(self.block_index.saturating_add(num_blocks));
         for block in self.block_index..max_block_index {
             for state_row in 0..4 {
-                _mm_store_si128(block_ptr.add(state_row), self.res[block][state_row])
+                _mm_storeu_si128(block_ptr.add(state_row), self.res[block][state_row])
             }
             block_ptr = block_ptr.add(4);
         }
@@ -107,7 +116,23 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
         num_blocks -= max_block_index - self.block_index;
         self.block_index += written_blocks;
         if num_blocks > 0 {
-            self.write_ks_blocks_aligned(block_ptr as *mut u32, num_blocks)
+            self.write_ks_blocks(block_ptr as *mut u8, num_blocks)
+        }
+    }
+
+    /// Fills the destination, and limits the recursion depth to up to 1 recursive call to 
+    /// `write_ks_blocks_aligned`.
+    #[cfg(feature = "rng")]
+    #[inline]
+    pub(super) unsafe fn rng_inner(&mut self, mut dest_ptr: *mut u32, num_blocks: usize) {
+        let chunks = num_blocks / PAR_BLOCKS;
+        for _i in 0..chunks {
+            self.write_ks_blocks(dest_ptr as *mut u8, PAR_BLOCKS);
+            dest_ptr = dest_ptr.add(64);
+        }
+        let remaining_blocks = num_blocks & 0b11;
+        if remaining_blocks > 0 {
+            self.write_ks_blocks(dest_ptr as *mut u8, remaining_blocks);
         }
     }
     
@@ -139,7 +164,7 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
             }
         }
 
-        self.increment_counter(4);
+        self.increment_counter(PAR_BLOCKS as i32);
     }
 
     #[inline]
@@ -152,7 +177,7 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
         V: Variant,
     {
         f.call(self);
-        //*state_counter = _mm_extract_epi32::<0>(self.v[3]) as u32;
+        *state_counter = self.counter;
     }
 }
 
@@ -170,15 +195,20 @@ impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
     #[inline(always)]
     fn gen_ks_block(&mut self, block: &mut Block) {
         unsafe {
-            let dest_ptr = block.as_mut_ptr() as *mut __m128i;
-        
-            self.rounds();
-            self.increment_counter(1);
-
-            for i in 0..4 {
-                //_mm_storeu_si128(dest_ptr.add(i), self.res[i]);
-            }
+            // Safety: `block` has the capacity for 1 block, and the recursion
+            // depth is minimal
+            self.write_ks_blocks(block.as_mut_ptr(), 1)
         }
+        self.counter = self.counter.wrapping_add(1)
+    }
+
+    #[inline(always)]
+    fn gen_par_ks_blocks(&mut self, blocks: &mut cipher::ParBlocks<Self>) {
+        unsafe {
+            // Safety: `blocks` has the capacity for the amount of blocks we will feed it
+            self.write_ks_blocks(blocks.as_mut_ptr() as *mut u8, PAR_BLOCKS);
+        }
+        self.counter = self.counter.wrapping_add(4)
     }
 }
 

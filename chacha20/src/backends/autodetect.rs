@@ -121,12 +121,12 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
             } else if #[cfg(chacha20_force_avx2)] {
                 unsafe { (*self.inner.avx2).rng_inner(dest_ptr, num_blocks) }
             } else if #[cfg(chacha20_force_sse2)] {
-                unsafe { (*self.inner.sse2).write_ks_blocks_aligned(dest_ptr, num_blocks) }
+                unsafe { (*self.inner.sse2).rng_inner(dest_ptr, num_blocks) }
             } else {
                 if self.avx2_token.get() {
                     unsafe { (*self.inner.avx2).rng_inner(dest_ptr, num_blocks) }
                 } else if self.sse2_token.get() {
-                    unsafe { (*self.inner.sse2).write_ks_blocks_aligned(dest_ptr, num_blocks) }
+                    unsafe { (*self.inner.sse2).rng_inner(dest_ptr, num_blocks) }
                 } else {
                     unsafe { (*self.inner.soft).write_ks_blocks_aligned(dest_ptr, num_blocks) }
                 }
