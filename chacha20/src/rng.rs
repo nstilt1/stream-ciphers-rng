@@ -293,13 +293,13 @@ macro_rules! impl_chacha_rng {
             /// This can be used with either:
             /// * u32
             /// * [u8; 4]
-            pub fn set_block_pos<B: Into<BlockPos>>(&mut self, pos: B) {
+            fn set_block_pos<B: Into<BlockPos>>(&mut self, pos: B) {
                 self.0.state[12] = pos.into().0;
                 self.0.update_state()
             }
 
             /// Gets the block pos.
-            pub fn get_block_pos(&self) -> u32 {
+            fn get_block_pos(&self) -> u32 {
                 self.0.state[12]
             }
         }
@@ -448,7 +448,7 @@ macro_rules! impl_chacha_rng {
             /// - a `[u8; 4]`
             #[inline]
             pub fn set_block_pos<B: Into<BlockPos>>(&mut self, pos: B) {
-                self.rng.core.set_block_pos(pos.into().0);
+                self.rng.core.set_block_pos(pos);
                 self.rng.reset()
             }
 
@@ -632,12 +632,12 @@ mod tests {
         assert_eq!(rng.get_stream(), 11111111);
 
         // test set_block_pos with u32
-        rng.rng.core.set_block_pos(58392);
-        assert_eq!(rng.rng.core.get_block_pos(), 58392);
+        rng.set_block_pos(58392);
+        assert_eq!(rng.get_block_pos(), 58392);
 
         // test set_block_pos with [u8; 4]
-        rng.rng.core.set_block_pos([77, 0, 0, 0]);
-        assert_eq!(rng.rng.core.get_block_pos(), 77);
+        rng.set_block_pos([77, 0, 0, 0]);
+        assert_eq!(rng.get_block_pos(), 77);
 
         // test set_word_pos with u64
         rng.set_word_pos(8888);
@@ -1095,8 +1095,6 @@ mod tests {
             for block_pos in word_pos_start..word_pos_start + test_amt {
                 rng.set_stream(stream as u128);
                 assert_eq!(stream as u128, rng.get_stream());
-                //rng.core.backend.set_block_pos(block_pos);
-                //assert_eq!(rng.core.backend.get_block_pos(), block_pos);
 
                 rng.set_word_pos(block_pos as u64);
                 assert_eq!(rng.get_word_pos(), block_pos as u64);

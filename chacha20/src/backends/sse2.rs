@@ -17,8 +17,9 @@ use cipher::{
 
 #[derive(Clone)]
 pub(super) struct Backend<R: Rounds, V: Variant> {
-    v: [__m128i; 4],
-    res: [__m128i; 4],
+    state: [__m128i; 4],
+    res: [[__m128i; 4]; 4],
+    block_index: usize,
     _pd: PhantomData<R>,
     _variant: PhantomData<V>,
 }
@@ -29,18 +30,38 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
         unsafe {
             let state_ptr = state.as_ptr() as *const __m128i;
             Self {
-                v: [
+                state: [
                     _mm_loadu_si128(state_ptr.add(0)),
                     _mm_loadu_si128(state_ptr.add(1)),
                     _mm_loadu_si128(state_ptr.add(2)),
                     _mm_loadu_si128(state_ptr.add(3)),
                 ],
-                res: [
+                res: [[
                     _mm_setzero_si128(),
                     _mm_setzero_si128(),
                     _mm_setzero_si128(),
                     _mm_setzero_si128(),
                 ],
+                [
+                    _mm_setzero_si128(),
+                    _mm_setzero_si128(),
+                    _mm_setzero_si128(),
+                    _mm_setzero_si128(),
+                ],
+                [
+                    _mm_setzero_si128(),
+                    _mm_setzero_si128(),
+                    _mm_setzero_si128(),
+                    _mm_setzero_si128(),
+                ],
+                [
+                    _mm_setzero_si128(),
+                    _mm_setzero_si128(),
+                    _mm_setzero_si128(),
+                    _mm_setzero_si128(),
+                ],
+                ],
+                block_index: 4,
                 _pd: PhantomData,
                 _variant: PhantomData,
             }
@@ -51,13 +72,14 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
     pub(super) fn update_state(&mut self, state: &[u32]) {
         unsafe {
             let state_ptr = state.as_ptr() as *const __m128i;
-            self.v[3] = _mm_loadu_si128(state_ptr.add(3))
+            self.state[3] = _mm_loadu_si128(state_ptr.add(3));
+            self.block_index = 4;
         }
     }
 
     #[inline(always)]
     fn increment_counter(&mut self, amount: i32) {
-        unsafe { self.v[3] = _mm_add_epi32(self.v[3], _mm_set_epi32(0, 0, 0, amount)) }
+        unsafe { self.state[3] = _mm_add_epi32(self.state[3], _mm_set_epi32(0, 0, 0, amount)) }
     }
 
     /// Generates a single block and blindly writes it to `dest_ptr`
@@ -67,31 +89,57 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
     /// could cause a segmentation fault and/or undesired behavior
     /// - `dest_ptr` should be aligned on a 16-byte boundary
     #[cfg(feature = "rng")]
-    #[inline(always)]
-    pub(super) unsafe fn write_ks_blocks_aligned(&mut self, dest_ptr: *mut u32, num_blocks: usize) {
+    pub(super) unsafe fn write_ks_blocks_aligned(&mut self, dest_ptr: *mut u32, mut num_blocks: usize) {
         let mut block_ptr = dest_ptr as *mut __m128i;
-        for _i in 0..num_blocks {
+        if self.block_index >= 4 {
             self.rounds();
-            self.increment_counter(1);
+            self.block_index = 0
+        }
 
-            for i in 0..4 {
-                _mm_store_si128(block_ptr.add(i), self.res[i]);
+        let max_block_index = 4.min(self.block_index.saturating_add(num_blocks));
+        for block in self.block_index..max_block_index {
+            for state_row in 0..4 {
+                _mm_store_si128(block_ptr.add(state_row), self.res[block][state_row])
             }
             block_ptr = block_ptr.add(4);
+        }
+        let written_blocks = max_block_index - self.block_index;
+        num_blocks -= max_block_index - self.block_index;
+        self.block_index += written_blocks;
+        if num_blocks > 0 {
+            self.write_ks_blocks_aligned(block_ptr as *mut u32, num_blocks)
         }
     }
     
     #[inline]
     #[target_feature(enable = "sse2")]
     unsafe fn rounds(&mut self) {
-        self.res = self.v;
+        self.res = [
+            self.state,
+            self.state,
+            self.state,
+            self.state
+        ];
+        for r in 1..4 {
+            self.res[r][3] = _mm_add_epi32(self.res[r][3], _mm_set_epi32(0, 0, 0, r as i32))
+        }
+
         for _ in 0..R::COUNT {
             double_quarter_round(&mut self.res);
         }
 
-        for i in 0..4 {
-            self.res[i] = _mm_add_epi32(self.res[i], self.v[i]);
+        for block in 0..4 {
+            // add state to block
+            for state_row in 0..4 {
+                self.res[block][state_row] = _mm_add_epi32(self.res[block][state_row], self.state[state_row])
+            }
+            // add the counter since `self.state` is lacking the updated counter values
+            if block > 0 {
+                self.res[block][3] = _mm_add_epi32(self.res[block][3], _mm_setr_epi32(block as i32, 0, 0, 0));
+            }
         }
+
+        self.increment_counter(4);
     }
 
     #[inline]
@@ -104,7 +152,7 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
         V: Variant,
     {
         f.call(self);
-        *state_counter = _mm_extract_epi32::<0>(self.v[3]) as u32;
+        //*state_counter = _mm_extract_epi32::<0>(self.v[3]) as u32;
     }
 }
 
@@ -128,7 +176,7 @@ impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
             self.increment_counter(1);
 
             for i in 0..4 {
-                _mm_storeu_si128(dest_ptr.add(i), self.res[i]);
+                //_mm_storeu_si128(dest_ptr.add(i), self.res[i]);
             }
         }
     }
@@ -136,7 +184,7 @@ impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
 
 #[inline]
 #[target_feature(enable = "sse2")]
-unsafe fn double_quarter_round(v: &mut [__m128i; 4]) {
+unsafe fn double_quarter_round(v: &mut [[__m128i; 4]; 4]) {
     add_xor_rot(v);
     rows_to_cols(v);
     add_xor_rot(v);
@@ -180,11 +228,13 @@ unsafe fn double_quarter_round(v: &mut [__m128i; 4]) {
 /// - https://github.com/floodyberry/chacha-opt/blob/0ab65cb99f5016633b652edebaf3691ceb4ff753/chacha_blocks_ssse3-64.S#L639-L643
 #[inline]
 #[target_feature(enable = "sse2")]
-unsafe fn rows_to_cols([a, _, c, d]: &mut [__m128i; 4]) {
-    // c >>>= 32; d >>>= 64; a >>>= 96;
-    *c = _mm_shuffle_epi32::<0b_00_11_10_01>(*c); // _MM_SHUFFLE(0, 3, 2, 1)
-    *d = _mm_shuffle_epi32::<0b_01_00_11_10>(*d); // _MM_SHUFFLE(1, 0, 3, 2)
-    *a = _mm_shuffle_epi32::<0b_10_01_00_11>(*a); // _MM_SHUFFLE(2, 1, 0, 3)
+unsafe fn rows_to_cols(blocks: &mut [[__m128i; 4]; 4]) {
+    for block in blocks.iter_mut() {
+        // c >>>= 32; d >>>= 64; a >>>= 96;
+        block[2] = _mm_shuffle_epi32::<0b_00_11_10_01>(block[2]); // _MM_SHUFFLE(0, 3, 2, 1)
+        block[3] = _mm_shuffle_epi32::<0b_01_00_11_10>(block[3]); // _MM_SHUFFLE(1, 0, 3, 2)
+        block[0] = _mm_shuffle_epi32::<0b_10_01_00_11>(block[0]); // _MM_SHUFFLE(2, 1, 0, 3)
+    }
 }
 
 /// The goal of this function is to transform the state words from:
@@ -206,33 +256,37 @@ unsafe fn rows_to_cols([a, _, c, d]: &mut [__m128i; 4]) {
 /// reversing the transformation of [`rows_to_cols`].
 #[inline]
 #[target_feature(enable = "sse2")]
-unsafe fn cols_to_rows([a, _, c, d]: &mut [__m128i; 4]) {
-    // c <<<= 32; d <<<= 64; a <<<= 96;
-    *c = _mm_shuffle_epi32::<0b_10_01_00_11>(*c); // _MM_SHUFFLE(2, 1, 0, 3)
-    *d = _mm_shuffle_epi32::<0b_01_00_11_10>(*d); // _MM_SHUFFLE(1, 0, 3, 2)
-    *a = _mm_shuffle_epi32::<0b_00_11_10_01>(*a); // _MM_SHUFFLE(0, 3, 2, 1)
+unsafe fn cols_to_rows(blocks: &mut [[__m128i; 4]; 4]) {
+    for block in blocks.iter_mut() {
+        // c <<<= 32; d <<<= 64; a <<<= 96;
+        block[2] = _mm_shuffle_epi32::<0b_10_01_00_11>(block[2]); // _MM_SHUFFLE(2, 1, 0, 3)
+        block[3] = _mm_shuffle_epi32::<0b_01_00_11_10>(block[3]); // _MM_SHUFFLE(1, 0, 3, 2)
+        block[0] = _mm_shuffle_epi32::<0b_00_11_10_01>(block[0]); // _MM_SHUFFLE(0, 3, 2, 1)
+    }
 }
 
 #[inline]
 #[target_feature(enable = "sse2")]
-unsafe fn add_xor_rot([a, b, c, d]: &mut [__m128i; 4]) {
-    // a += b; d ^= a; d <<<= (16, 16, 16, 16);
-    *a = _mm_add_epi32(*a, *b);
-    *d = _mm_xor_si128(*d, *a);
-    *d = _mm_xor_si128(_mm_slli_epi32::<16>(*d), _mm_srli_epi32::<16>(*d));
+unsafe fn add_xor_rot(blocks: &mut [[__m128i; 4]]) {
+    for block in blocks.iter_mut() {
+        // a += b; d ^= a; d <<<= (16, 16, 16, 16);
+        block[0] = _mm_add_epi32(block[0], block[1]);
+        block[3] = _mm_xor_si128(block[3], block[0]);
+        block[3] = _mm_xor_si128(_mm_slli_epi32::<16>(block[3]), _mm_srli_epi32::<16>(block[3]));
 
-    // c += d; b ^= c; b <<<= (12, 12, 12, 12);
-    *c = _mm_add_epi32(*c, *d);
-    *b = _mm_xor_si128(*b, *c);
-    *b = _mm_xor_si128(_mm_slli_epi32::<12>(*b), _mm_srli_epi32::<20>(*b));
+        // c += d; b ^= c; b <<<= (12, 12, 12, 12);
+        block[2] = _mm_add_epi32(block[2], block[3]);
+        block[1] = _mm_xor_si128(block[1], block[2]);
+        block[1] = _mm_xor_si128(_mm_slli_epi32::<12>(block[1]), _mm_srli_epi32::<20>(block[1]));
 
-    // a += b; d ^= a; d <<<= (8, 8, 8, 8);
-    *a = _mm_add_epi32(*a, *b);
-    *d = _mm_xor_si128(*d, *a);
-    *d = _mm_xor_si128(_mm_slli_epi32::<8>(*d), _mm_srli_epi32::<24>(*d));
+        // a += b; d ^= a; d <<<= (8, 8, 8, 8);
+        block[0] = _mm_add_epi32(block[0], block[1]);
+        block[3] = _mm_xor_si128(block[3], block[0]);
+        block[3] = _mm_xor_si128(_mm_slli_epi32::<8>(block[3]), _mm_srli_epi32::<24>(block[3]));
 
-    // c += d; b ^= c; b <<<= (7, 7, 7, 7);
-    *c = _mm_add_epi32(*c, *d);
-    *b = _mm_xor_si128(*b, *c);
-    *b = _mm_xor_si128(_mm_slli_epi32::<7>(*b), _mm_srli_epi32::<25>(*b));
+        // c += d; b ^= c; b <<<= (7, 7, 7, 7);
+        block[2] = _mm_add_epi32(block[2], block[3]);
+        block[1] = _mm_xor_si128(block[1], block[2]);
+        block[1] = _mm_xor_si128(_mm_slli_epi32::<7>(block[1]), _mm_srli_epi32::<25>(block[1]));
+    }
 }
