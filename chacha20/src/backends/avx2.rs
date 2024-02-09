@@ -124,7 +124,7 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
                 v,
                 ctr,
                 results: [[_mm256_setzero_si256(); 4]; N],
-                block: 4,
+                block: PAR_BLOCKS,
                 counter: 0,
                 _pd: PhantomData,
                 _variant: PhantomData,
@@ -143,7 +143,7 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
                 self.ctr[i] = c;
                 c = _mm256_add_epi32(c, _mm256_setr_epi32(2, 0, 0, 0, 2, 0, 0, 0));
             }
-            self.block = 4;
+            self.block = PAR_BLOCKS;
             self.counter = state[12]
         }
     }
@@ -166,7 +166,7 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
     unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
         let mut _block_ptr = dest_ptr as *mut __m128i;
 
-        if self.block == PAR_BLOCKS {
+        if self.block >= PAR_BLOCKS {
             self.rounds();
             self.block = 0;
         }
@@ -199,7 +199,7 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
     unsafe fn write_ks_blocks_aligned(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
         let mut _block_ptr = dest_ptr as *mut __m128i;
 
-        if self.block == PAR_BLOCKS {
+        if self.block >= PAR_BLOCKS {
             self.rounds();
             self.block = 0;
         }
@@ -228,10 +228,10 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
         // limiting recursion depth to a maximum of 3 recursive calls to try
         // to reduce memory usage
         unsafe {
-            while num_blocks > 4 {
+            while num_blocks > PAR_BLOCKS {
                 self.write_ks_blocks_aligned(dest_ptr as *mut u8, 4);
                 dest_ptr = dest_ptr.add(64);
-                num_blocks -= 4;
+                num_blocks -= PAR_BLOCKS;
             }
             if num_blocks > 0 {
                 self.write_ks_blocks_aligned(dest_ptr as *mut u8, num_blocks)

@@ -1,3 +1,8 @@
+//! SSE2-optimized implementation for x86 and x86_64 CPUs.
+//!
+//! Adapted from the Crypto++ `chacha_simd` implementation by Jack Lloyd and
+//! Jeffrey Walton (public domain).
+
 use crate::{Rounds, Variant, STATE_WORDS};
 use core::marker::PhantomData;
 
@@ -21,7 +26,7 @@ const PAR_BLOCKS: usize = 4;
 #[derive(Clone)]
 pub(super) struct Backend<R: Rounds, V: Variant> {
     state: [__m128i; 4],
-    res: [[__m128i; 4]; 4],
+    res: [[__m128i; 4]; PAR_BLOCKS],
     // a separate counter because `cipher`'s `StreamBackend` is tough
     // to keep count with
     counter: u32,
@@ -67,7 +72,7 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
                     _mm_setzero_si128(),
                 ],
                 ],
-                block_index: 4,
+                block_index: PAR_BLOCKS,
                 counter: 0,
                 _pd: PhantomData,
                 _variant: PhantomData,
@@ -105,7 +110,7 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
             self.block_index = 0
         }
 
-        let max_block_index = 4.min(self.block_index.saturating_add(num_blocks));
+        let max_block_index = PAR_BLOCKS.min(self.block_index.saturating_add(num_blocks));
         for block in self.block_index..max_block_index {
             for state_row in 0..4 {
                 _mm_storeu_si128(block_ptr.add(state_row), self.res[block][state_row])
@@ -130,12 +135,13 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
             self.write_ks_blocks(dest_ptr as *mut u8, PAR_BLOCKS);
             dest_ptr = dest_ptr.add(64);
         }
-        let remaining_blocks = num_blocks & 0b11;
+        let remaining_blocks = num_blocks % PAR_BLOCKS;
         if remaining_blocks > 0 {
             self.write_ks_blocks(dest_ptr as *mut u8, remaining_blocks);
         }
     }
     
+    /// Performs ChaCha's rounds, filling the Backend's buffer
     #[inline]
     #[target_feature(enable = "sse2")]
     unsafe fn rounds(&mut self) {
@@ -145,23 +151,23 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
             self.state,
             self.state
         ];
-        for r in 1..4 {
-            self.res[r][3] = _mm_add_epi32(self.res[r][3], _mm_set_epi32(0, 0, 0, r as i32))
+
+        // adjust the counter for self.res[1..]
+        for block in 1..PAR_BLOCKS {
+            self.res[block][3] = _mm_add_epi32(self.res[block][3], _mm_set_epi32(0, 0, 0, block as i32))
         }
 
         for _ in 0..R::COUNT {
             double_quarter_round(&mut self.res);
         }
 
-        for block in 0..4 {
+        for block in 0..PAR_BLOCKS {
             // add state to block
             for state_row in 0..4 {
                 self.res[block][state_row] = _mm_add_epi32(self.res[block][state_row], self.state[state_row])
             }
             // add the counter since `self.state` is lacking the updated counter values
-            if block > 0 {
-                self.res[block][3] = _mm_add_epi32(self.res[block][3], _mm_setr_epi32(block as i32, 0, 0, 0));
-            }
+            self.res[block][3] = _mm_add_epi32(self.res[block][3], _mm_set_epi32(0, 0, 0, block as i32));
         }
 
         self.increment_counter(PAR_BLOCKS as i32);
@@ -208,13 +214,13 @@ impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
             // Safety: `blocks` has the capacity for the amount of blocks we will feed it
             self.write_ks_blocks(blocks.as_mut_ptr() as *mut u8, PAR_BLOCKS);
         }
-        self.counter = self.counter.wrapping_add(4)
+        self.counter = self.counter.wrapping_add(PAR_BLOCKS as u32)
     }
 }
 
 #[inline]
 #[target_feature(enable = "sse2")]
-unsafe fn double_quarter_round(v: &mut [[__m128i; 4]; 4]) {
+unsafe fn double_quarter_round(v: &mut [[__m128i; 4]; PAR_BLOCKS]) {
     add_xor_rot(v);
     rows_to_cols(v);
     add_xor_rot(v);
@@ -258,12 +264,12 @@ unsafe fn double_quarter_round(v: &mut [[__m128i; 4]; 4]) {
 /// - https://github.com/floodyberry/chacha-opt/blob/0ab65cb99f5016633b652edebaf3691ceb4ff753/chacha_blocks_ssse3-64.S#L639-L643
 #[inline]
 #[target_feature(enable = "sse2")]
-unsafe fn rows_to_cols(blocks: &mut [[__m128i; 4]; 4]) {
-    for block in blocks.iter_mut() {
+unsafe fn rows_to_cols(blocks: &mut [[__m128i; 4]; PAR_BLOCKS]) {
+    for [a, _, c, d] in blocks.iter_mut() {
         // c >>>= 32; d >>>= 64; a >>>= 96;
-        block[2] = _mm_shuffle_epi32::<0b_00_11_10_01>(block[2]); // _MM_SHUFFLE(0, 3, 2, 1)
-        block[3] = _mm_shuffle_epi32::<0b_01_00_11_10>(block[3]); // _MM_SHUFFLE(1, 0, 3, 2)
-        block[0] = _mm_shuffle_epi32::<0b_10_01_00_11>(block[0]); // _MM_SHUFFLE(2, 1, 0, 3)
+        *c = _mm_shuffle_epi32::<0b_00_11_10_01>(*c); // _MM_SHUFFLE(0, 3, 2, 1)
+        *d = _mm_shuffle_epi32::<0b_01_00_11_10>(*d); // _MM_SHUFFLE(1, 0, 3, 2)
+        *a = _mm_shuffle_epi32::<0b_10_01_00_11>(*a); // _MM_SHUFFLE(2, 1, 0, 3)
     }
 }
 
@@ -286,37 +292,37 @@ unsafe fn rows_to_cols(blocks: &mut [[__m128i; 4]; 4]) {
 /// reversing the transformation of [`rows_to_cols`].
 #[inline]
 #[target_feature(enable = "sse2")]
-unsafe fn cols_to_rows(blocks: &mut [[__m128i; 4]; 4]) {
-    for block in blocks.iter_mut() {
+unsafe fn cols_to_rows(blocks: &mut [[__m128i; 4]; PAR_BLOCKS]) {
+    for [a, _, c, d] in blocks.iter_mut() {
         // c <<<= 32; d <<<= 64; a <<<= 96;
-        block[2] = _mm_shuffle_epi32::<0b_10_01_00_11>(block[2]); // _MM_SHUFFLE(2, 1, 0, 3)
-        block[3] = _mm_shuffle_epi32::<0b_01_00_11_10>(block[3]); // _MM_SHUFFLE(1, 0, 3, 2)
-        block[0] = _mm_shuffle_epi32::<0b_00_11_10_01>(block[0]); // _MM_SHUFFLE(0, 3, 2, 1)
+        *c = _mm_shuffle_epi32::<0b_10_01_00_11>(*c); // _MM_SHUFFLE(2, 1, 0, 3)
+        *d = _mm_shuffle_epi32::<0b_01_00_11_10>(*d); // _MM_SHUFFLE(1, 0, 3, 2)
+        *a = _mm_shuffle_epi32::<0b_00_11_10_01>(*a); // _MM_SHUFFLE(0, 3, 2, 1)
     }
 }
 
 #[inline]
 #[target_feature(enable = "sse2")]
 unsafe fn add_xor_rot(blocks: &mut [[__m128i; 4]]) {
-    for block in blocks.iter_mut() {
+    for [a, b, c, d] in blocks.iter_mut() {
         // a += b; d ^= a; d <<<= (16, 16, 16, 16);
-        block[0] = _mm_add_epi32(block[0], block[1]);
-        block[3] = _mm_xor_si128(block[3], block[0]);
-        block[3] = _mm_xor_si128(_mm_slli_epi32::<16>(block[3]), _mm_srli_epi32::<16>(block[3]));
+        *a = _mm_add_epi32(*a, *b);
+        *d = _mm_xor_si128(*d, *a);
+        *d = _mm_xor_si128(_mm_slli_epi32::<16>(*d), _mm_srli_epi32::<16>(*d));
 
         // c += d; b ^= c; b <<<= (12, 12, 12, 12);
-        block[2] = _mm_add_epi32(block[2], block[3]);
-        block[1] = _mm_xor_si128(block[1], block[2]);
-        block[1] = _mm_xor_si128(_mm_slli_epi32::<12>(block[1]), _mm_srli_epi32::<20>(block[1]));
+        *c = _mm_add_epi32(*c, *d);
+        *b = _mm_xor_si128(*b, *c);
+        *b = _mm_xor_si128(_mm_slli_epi32::<12>(*b), _mm_srli_epi32::<20>(*b));
 
         // a += b; d ^= a; d <<<= (8, 8, 8, 8);
-        block[0] = _mm_add_epi32(block[0], block[1]);
-        block[3] = _mm_xor_si128(block[3], block[0]);
-        block[3] = _mm_xor_si128(_mm_slli_epi32::<8>(block[3]), _mm_srli_epi32::<24>(block[3]));
+        *a = _mm_add_epi32(*a, *b);
+        *d = _mm_xor_si128(*d, *a);
+        *d = _mm_xor_si128(_mm_slli_epi32::<8>(*d), _mm_srli_epi32::<24>(*d));
 
         // c += d; b ^= c; b <<<= (7, 7, 7, 7);
-        block[2] = _mm_add_epi32(block[2], block[3]);
-        block[1] = _mm_xor_si128(block[1], block[2]);
-        block[1] = _mm_xor_si128(_mm_slli_epi32::<7>(block[1]), _mm_srli_epi32::<25>(block[1]));
+        *c = _mm_add_epi32(*c, *d);
+        *b = _mm_xor_si128(*b, *c);
+        *b = _mm_xor_si128(_mm_slli_epi32::<7>(*b), _mm_srli_epi32::<25>(*b));
     }
 }
