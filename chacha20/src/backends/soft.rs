@@ -62,11 +62,9 @@ cfg_if! {
             /// - `dest_ptr` must have `num_blocks * 64 bytes` available to be overwritten.
             #[inline]
             #[cfg(feature = "rng")]
-            pub(crate) unsafe fn generate(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
-                unsafe {
-                    self.backend.write_ks_blocks_aligned(dest_ptr, num_blocks);
-                }
-                self.state[12] = self.state[12].wrapping_add(num_blocks as u32);
+            pub(crate) unsafe fn generate(&mut self, buffer: &mut [u32; 64]) {
+                self.backend.generate(buffer);
+                self.state[12] = self.state[12].wrapping_add(4 as u32);
             }
         }
 
@@ -81,8 +79,7 @@ cfg_if! {
             /// Generate output, overwriting data already in the buffer.
             #[inline]
             fn process_with_backend(&mut self, f: impl StreamClosure<BlockSize = U64>) {
-                f.call(&mut self.backend);
-                self.state[12] = self.backend.state[12]
+                self.backend.inner(&mut self.state[12], f)
             }
         }
     }
@@ -121,23 +118,18 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
         self.state[12..16].copy_from_slice(&state[12..16])
     }
 
-    /// Generates `num_blocks * 64` bytes and blindly writes them to `dest_ptr`
-    ///
-    /// # Safety
-    /// - `dest_ptr` must have at least `64 * num_blocks` bytes available to be
-    /// overwritten, or else it could cause a segmentation fault and/or undesired
-    /// behavior.
-    /// - `dest_ptr` should be aligned on a 16-byte boundary
+    /// Fills a `[u32; 64]` buffer
     #[cfg(feature = "rng")]
     #[inline(always)]
-    pub(super) unsafe fn write_ks_blocks_aligned(&mut self, mut dest_ptr: *mut u32, num_blocks: usize) {
-        for _i in 0..num_blocks {
+    pub(super) fn generate(&mut self, buffer: &mut [u32; 64]) {
+        let mut i = 0;
+        for _i in 0..4 {
             self.run_rounds();
             self.increment_counter(1);
 
             for val in self.results.iter() {
-                dest_ptr.write(val.to_le());
-                dest_ptr = dest_ptr.add(1);
+                buffer[i] = val.to_le();
+                i += 1;
             }
         }
     }
@@ -188,7 +180,6 @@ impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
 #[cfg(feature = "cipher")]
 impl<R: Rounds, V: Variant> Backend<R, V> {
     #[inline]
-    #[cfg(feature = "cipher")]
     pub(crate) fn inner<F>(&mut self, state_counter: &mut u32, f: F)
     where
         R: Rounds,

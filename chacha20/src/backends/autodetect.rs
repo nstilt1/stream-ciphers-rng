@@ -2,9 +2,7 @@
 //! fallback to a portable version when they're unavailable.
 
 use super::{avx2, soft, sse2};
-use crate::{
-    impl_chacha_core, variants::Variant, Rounds, CONSTANTS, STATE_WORDS,
-};
+use crate::{impl_chacha_core, variants::Variant, Rounds, CONSTANTS, STATE_WORDS};
 use cfg_if::cfg_if;
 use core::mem::ManuallyDrop;
 
@@ -108,31 +106,28 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
         }
     }
 
-    /// Generates `num_blocks` blocks of output and writes them `dest_ptr`.
-    ///
-    /// # Safety
-    /// - `dest_ptr` must have `num_blocks * 64 bytes` available to be overwritten.
+    /// Fills a `[u32; 64]` buffer
     #[inline]
     #[cfg(feature = "rng")]
-    pub(crate) unsafe fn generate(&mut self, dest_ptr: *mut u32, num_blocks: usize) {
+    pub(crate) unsafe fn generate(&mut self, buffer: &mut [u32; 64]) {
         cfg_if! {
             if #[cfg(chacha20_force_soft)] {
-                unsafe { (*self.inner.soft).write_ks_blocks_aligned(dest_ptr, num_blocks) }
+                unsafe { (*self.inner.soft).generate(buffer) }
             } else if #[cfg(chacha20_force_avx2)] {
-                unsafe { (*self.inner.avx2).rng_inner(dest_ptr, num_blocks) }
+                unsafe { (*self.inner.avx2).generate(buffer) }
             } else if #[cfg(chacha20_force_sse2)] {
-                unsafe { (*self.inner.sse2).write_ks_blocks_aligned(dest_ptr, num_blocks) }
+                unsafe { (*self.inner.sse2).generate(buffer) }
             } else {
                 if self.avx2_token.get() {
-                    unsafe { (*self.inner.avx2).rng_inner(dest_ptr, num_blocks) }
+                    unsafe { (*self.inner.avx2).generate(buffer) }
                 } else if self.sse2_token.get() {
-                    unsafe { (*self.inner.sse2).write_ks_blocks_aligned(dest_ptr, num_blocks) }
+                    unsafe { (*self.inner.sse2).generate(buffer) }
                 } else {
-                    unsafe { (*self.inner.soft).write_ks_blocks_aligned(dest_ptr, num_blocks) }
+                    unsafe { (*self.inner.soft).generate(buffer) }
                 }
             }
         }
-        self.state[12] = self.state[12].wrapping_add(num_blocks as u32);
+        self.state[12] = self.state[12].wrapping_add(4 as u32);
     }
 }
 

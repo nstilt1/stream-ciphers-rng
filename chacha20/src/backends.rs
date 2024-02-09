@@ -3,7 +3,7 @@ use cfg_if::cfg_if;
 #[cfg(feature = "cipher")]
 use cipher::{consts::U64, BlockSizeUser};
 
-use crate::{Rounds, Variant, STATE_WORDS};
+use crate::{Rounds, Variant};
 
 cfg_if! {
     if #[cfg(chacha20_force_soft)] {

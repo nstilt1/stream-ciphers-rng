@@ -37,25 +37,6 @@ macro_rules! extract_1_block {
     };
 }
 
-/// Extracts a single block of output from a [__m256i; 4], and writes it to a
-/// 16-byte aligned pointer.
-/// ### Parameters
-/// - `$block_ptr`: a `*mut __m128i` to write a block to
-/// - `$block_pair`: a `[__m256i; 4]` that contains 2 blocks of output
-/// - `$block_index`: a `0` or `1` to determine which block you want to extract
-/// ### Safety
-/// - Ensure that `$block_ptr` is suitable for receiving 64 bytes of data
-/// - Ensure that `$block_ptr` is 16-byte aligned
-macro_rules! extract_1_block_aligned {
-    ($block_ptr:expr, $block_pair:expr, $block_index:literal) => {
-        let t: [__m128i; 8] = core::mem::transmute($block_pair);
-        for i in 0..4 {
-            _mm_store_si128($block_ptr.add(i), t[(i << 1) + $block_index]);
-        }
-        $block_ptr = $block_ptr.add(4);
-    };
-}
-
 /// Extracts 2 blocks of output from a [__m256i; 4].
 /// ### Parameters
 /// - `$block_ptr`: a `*mut __m128i` to write a block to
@@ -73,31 +54,12 @@ macro_rules! extract_2_blocks {
     };
 }
 
-/// Extracts 2 blocks of output from a [__m256i; 4], and writes it to a
-/// 16-byte aligned pointer.
-/// ### Parameters
-/// - `$block_ptr`: a `*mut __m128i` to write a block to
-/// - `$block_pair`: a `[__m256i; 4]` that contains 2 blocks of output
-/// ### Safety
-/// - Ensure that `$block_ptr` is suitable for receiving 128 bytes of data.
-/// - Ensure that `$block_ptr` is 16-byte aligned
-macro_rules! extract_2_blocks_aligned {
-    ($block_ptr:expr, $block_pair:expr) => {
-        let t: [__m128i; 8] = core::mem::transmute($block_pair);
-        for i in 0..4 {
-            _mm_store_si128($block_ptr.add(i), t[i << 1]);
-            _mm_store_si128($block_ptr.add(4 + i), t[(i << 1) + 1]);
-        }
-        $block_ptr = $block_ptr.add(8);
-    };
-}
-
 #[derive(Clone)]
 pub(crate) struct Backend<R: Rounds, V: Variant> {
     v: [__m256i; 3],
     ctr: [__m256i; N],
     results: [[__m256i; 4]; N],
-    block: usize,
+    block_index: usize,
     counter: u32,
     _pd: PhantomData<R>,
     _variant: PhantomData<V>,
@@ -124,7 +86,7 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
                 v,
                 ctr,
                 results: [[_mm256_setzero_si256(); 4]; N],
-                block: 4,
+                block_index: PAR_BLOCKS,
                 counter: 0,
                 _pd: PhantomData,
                 _variant: PhantomData,
@@ -143,7 +105,7 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
                 self.ctr[i] = c;
                 c = _mm256_add_epi32(c, _mm256_setr_epi32(2, 0, 0, 0, 2, 0, 0, 0));
             }
-            self.block = 4;
+            self.block_index = PAR_BLOCKS;
             self.counter = state[12]
         }
     }
@@ -161,83 +123,46 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
     /// Generates `num_blocks` blocks and blindly writes them to `dest_ptr` recursively
     ///
     /// # Safety
-    /// `dest_ptr` must have at least `num_blocks * 64` bytes available to be overwritten, or else it
-    /// could result in a segmentation fault or undesired behavior
+    /// - `dest_ptr` must have at least `num_blocks * 64` bytes available to be overwritten, or else it
+    ///   could result in a segmentation fault or undesired behavior
+    /// - if `num_blocks` is too large, there could be a stack overflow. It is best to limit
+    ///   this value. By limiting it to 4, there would only be up to 1 recursive call
     unsafe fn write_ks_blocks(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
         let mut _block_ptr = dest_ptr as *mut __m128i;
 
-        if self.block == PAR_BLOCKS {
+        if self.block_index == PAR_BLOCKS {
             self.rounds();
-            self.block = 0;
+            self.block_index = 0;
         }
 
         // if (self.block % 2 == 0) to check if either `extract_2_blocks` or `extract_first_block` can be used
-        if self.block & 0b01 == 0 {
+        if self.block_index & 0b01 == 0 {
             if num_blocks >= 2 {
-                extract_2_blocks!(_block_ptr, self.results[self.block >> 1]);
-                self.block += 2;
+                extract_2_blocks!(_block_ptr, self.results[self.block_index >> 1]);
+                self.block_index += 2;
                 self.write_ks_blocks(_block_ptr as *mut u8, num_blocks - 2);
             } else if num_blocks == 1 {
-                extract_1_block!(_block_ptr, self.results[self.block >> 1], 0);
-                self.block += 1;
+                extract_1_block!(_block_ptr, self.results[self.block_index >> 1], 0);
+                self.block_index += 1;
             } // else: num_blocks == 0, recursion ends
         } else if num_blocks > 0 {
             // self.block is either 1 or 3
-            extract_1_block!(_block_ptr, self.results[self.block >> 1], 1);
-            self.block += 1;
+            extract_1_block!(_block_ptr, self.results[self.block_index >> 1], 1);
+            self.block_index += 1;
             self.write_ks_blocks(_block_ptr as *mut u8, num_blocks - 1);
         } // else: num_blocks == 0, recursion ends
     }
 
-    /// Generates `num_blocks` blocks and blindly writes them to `dest_ptr` recursively
-    ///
-    /// # Safety
-    /// - `dest_ptr` must have at least `num_blocks * 64` bytes available to be overwritten, or else it
-    /// could result in a segmentation fault or undesired behavior
-    /// - `dest_ptr` should be aligned on a 16-byte boundary
-    #[cfg(feature = "rng")]
-    unsafe fn write_ks_blocks_aligned(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
-        let mut _block_ptr = dest_ptr as *mut __m128i;
-
-        if self.block == PAR_BLOCKS {
-            self.rounds();
-            self.block = 0;
-        }
-
-        // if (self.block % 2 == 0) to check if either `extract_2_blocks` or `extract_first_block` can be used
-        if self.block & 0b01 == 0 {
-            if num_blocks >= 2 {
-                extract_2_blocks_aligned!(_block_ptr, self.results[self.block >> 1]);
-                self.block += 2;
-                self.write_ks_blocks_aligned(_block_ptr as *mut u8, num_blocks - 2);
-            } else if num_blocks == 1 {
-                extract_1_block_aligned!(_block_ptr, self.results[self.block >> 1], 0);
-                self.block += 1;
-            } // else: num_blocks == 0, recursion ends
-        } else if num_blocks > 0 {
-            // self.block is either 1 or 3
-            extract_1_block_aligned!(_block_ptr, self.results[self.block >> 1], 1);
-            self.block += 1;
-            self.write_ks_blocks_aligned(_block_ptr as *mut u8, num_blocks - 1);
-        } // else: num_blocks == 0, recursion ends
-    }
-
+    /// Writes `num_blocks` blocks to the destination.
     #[cfg(feature = "rng")]
     #[inline]
-    pub(super) fn rng_inner(&mut self, mut dest_ptr: *mut u32, mut num_blocks: usize) {
-        // limiting recursion depth to a maximum of 3 recursive calls to try
-        // to reduce memory usage
+    pub(super) fn generate(&mut self, buffer: &mut [u32; 64]) {
+        // Safety: This is safe because we are limiting the recursive depth to 1
+        // by only filling a 4 block buffer, and it has the capacity for 4 blocks.
         unsafe {
-            while num_blocks > 4 {
-                self.write_ks_blocks_aligned(dest_ptr as *mut u8, 4);
-                dest_ptr = dest_ptr.add(64);
-                num_blocks -= 4;
-            }
-            if num_blocks > 0 {
-                self.write_ks_blocks_aligned(dest_ptr as *mut u8, num_blocks)
-            }
-            self.counter = self.counter.wrapping_add(num_blocks as u32);
+            self.write_ks_blocks(buffer.as_mut_ptr() as *mut u8, 4);
         }
+        self.counter = self.counter.wrapping_add(4 as u32);
     }
 }
 
@@ -254,17 +179,20 @@ impl<R: Rounds, V: Variant> ParBlocksSizeUser for Backend<R, V> {
 #[cfg(feature = "cipher")]
 impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
     #[inline(always)]
-    fn gen_ks_block(&mut self, dest_ptr: &mut Block) {
+    fn gen_ks_block(&mut self, block: &mut Block) {
         unsafe {
-            self.write_ks_blocks(dest_ptr.as_mut_ptr(), 1);
+            // Safety: This is safe because `block` has the capacity for a single block, and
+            // there is minimal recursion depth with this call.
+            self.write_ks_blocks(block.as_mut_ptr(), 1);
         }
         self.counter += 1;
     }
 
     #[inline(always)]
     fn gen_par_ks_blocks(&mut self, blocks: &mut ParBlocks<Self>) {
-        // SAFETY: `ParBlocks` is a 256-byte 2D array.
         unsafe {
+            // Safety: This is safe because `blocks` has the capacity for 4 blocks, and
+            // there is minimal recursion depth with this call.
             self.write_ks_blocks(blocks.as_mut_ptr() as *mut u8, 4);
         }
         self.counter += 4;
@@ -282,8 +210,6 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
         V: Variant,
     {
         f.call(self);
-        // this seems to be the only way to keep track of the counter since
-        // `f.call(self)` can run `gen_par_ks_blocks()` multiple times
         *state_counter = self.counter;
     }
 

@@ -164,11 +164,9 @@ impl From<[u8; 4]> for BlockPos {
     }
 }
 
-/// The results buffer. Aligned by 16-byte boundaries to try to increase
-/// SIMD performance.
-#[repr(align(16))]
+/// The results buffer
 #[derive(Clone)]
-pub struct BlockRngResults ([u32; BUFFER_SIZE as usize]);
+pub struct BlockRngResults([u32; BUFFER_SIZE as usize]);
 
 impl AsRef<[u32]> for BlockRngResults {
     fn as_ref(&self) -> &[u32] {
@@ -282,7 +280,7 @@ macro_rules! impl_chacha_rng {
             type Results = BlockRngResults;
             #[inline]
             fn generate(&mut self, r: &mut Self::Results) {
-                unsafe { self.0.generate(r.0.as_mut_ptr(), BUF_BLOCKS as usize) }
+                unsafe { self.0.generate(&mut r.0) }
             }
         }
 

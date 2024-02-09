@@ -9,6 +9,9 @@ use core::{arch::aarch64::*, marker::PhantomData};
 #[cfg(feature = "cipher")]
 use crate::chacha::Block;
 
+/// Number of blocks processed in parallel.
+const PAR_BLOCKS: usize = 4;
+
 #[cfg(feature = "cipher")]
 use cipher::{
     consts::{U4, U64},
@@ -47,15 +50,13 @@ impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
         self.backend.update_state(&self.state)
     }
 
-    /// Generates `num_blocks` blocks of output and writes them `dest_ptr`.
-    ///
-    /// # Safety
-    /// - `dest_ptr` must have `num_blocks * 64 bytes` available to be overwritten.
+    /// Fills a [u32; 64] buffer
     #[inline]
     #[cfg(feature = "rng")]
-    pub(crate) unsafe fn generate(&mut self, dest_ptr: *mut u8, num_blocks: usize) {
-        self.backend.rng_inner(dest_ptr, num_blocks);
-        self.state[12] = self.state[12].wrapping_add(num_blocks as u32);
+    pub(crate) unsafe fn generate(&mut self, buffer: &mut [u32; 64]) {
+        self.backend
+            .write_ks_blocks(buffer.as_mut_ptr() as *mut u8, PAR_BLOCKS);
+        self.state[12] = self.state[12].wrapping_add(4 as u32);
     }
 }
 
@@ -81,7 +82,7 @@ struct Backend<R: Rounds, V: Variant> {
     state: [uint32x4_t; 4],
     ctrs: [uint32x4_t; 4],
     results: [[uint32x4_t; 4]; 4],
-    block: usize,
+    block_index: usize,
     _pd: PhantomData<R>,
     _variant: PhantomData<V>,
 }
@@ -95,6 +96,7 @@ macro_rules! add64 {
     };
 }
 
+/// Rotates a vector left by the specified amount
 macro_rules! rotate_left {
     ($v:expr, 8) => {{
         let maskb = [3u8, 0, 1, 2, 7, 4, 5, 6, 11, 8, 9, 10, 15, 12, 13, 14];
@@ -148,7 +150,7 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
                     [state[0], state[1], state[2], add64!(state[3], ctrs[1])],
                     [state[0], state[1], state[2], add64!(state[3], ctrs[2])],
                 ],
-                block: 4,
+                block_index: PAR_BLOCKS,
                 _pd: PhantomData,
                 _variant: PhantomData,
             }
@@ -165,7 +167,7 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
 
     #[inline]
     fn increment_counter(&mut self, amount: i32) {
-        debug_assert!(amount > 0 && amount <= Self::PAR_BLOCKS.try_into().unwrap());
+        debug_assert!(amount > 0 && amount <= PAR_BLOCKS.try_into().unwrap());
         unsafe {
             self.state[3] = add64!(self.state[3], self.ctrs[amount as usize - 1]);
         }
@@ -180,14 +182,14 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
     /// overwritten, or else it could cause a segmentation fault and/or undesired
     /// behavior
     unsafe fn write_ks_blocks(&mut self, mut dest_ptr: *mut u8, mut num_blocks: usize) {
-        if self.block >= Self::PAR_BLOCKS {
+        if self.block_index >= PAR_BLOCKS {
             self.rounds();
             self.block = 0;
         }
 
-        // using a saturating add because this could overflow. Very small chance though
-        let max_block_index = Self::PAR_BLOCKS.min(self.block.saturating_add(num_blocks));
-        for block in self.block..max_block_index {
+        // using a saturating add because this could overflow
+        let max_block_index = PAR_BLOCKS.min(self.block_index.saturating_add(num_blocks));
+        for block in self.block_index..max_block_index {
             // write blocks to pointer
             for state_row in 0..4 {
                 vst1q_u8(
@@ -197,53 +199,22 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
             }
             dest_ptr = dest_ptr.add(64);
         }
-        num_blocks -= max_block_index - self.block;
-        self.block = max_block_index;
+        num_blocks -= max_block_index - self.block_index;
+        self.block_index = max_block_index;
         if num_blocks > 0 {
             self.write_ks_blocks(dest_ptr, num_blocks)
         }
     }
 
-    #[cfg(feature = "rng")]
-    #[inline]
-    fn rng_inner(&mut self, mut dest_ptr: *mut u8, mut num_blocks: usize) {
-        // limiting recursion depth to a maximum of 2 recursive calls to try
-        // to reduce memory usage
-        unsafe {
-            while num_blocks > 4 {
-                self.write_ks_blocks(dest_ptr, 4);
-                dest_ptr = dest_ptr.add(256);
-                num_blocks -= 4;
-            }
-            if num_blocks > 0 {
-                self.write_ks_blocks(dest_ptr, num_blocks);
-            }
-        }
-    }
-
     #[inline]
     #[target_feature(enable = "neon")]
+    #[rustfmt::skip]
     unsafe fn rounds(&mut self) {
         self.results = [
             [self.state[0], self.state[1], self.state[2], self.state[3]],
-            [
-                self.state[0],
-                self.state[1],
-                self.state[2],
-                add64!(self.state[3], self.ctrs[0]),
-            ],
-            [
-                self.state[0],
-                self.state[1],
-                self.state[2],
-                add64!(self.state[3], self.ctrs[1]),
-            ],
-            [
-                self.state[0],
-                self.state[1],
-                self.state[2],
-                add64!(self.state[3], self.ctrs[2]),
-            ],
+            [self.state[0], self.state[1], self.state[2], add64!(self.state[3], self.ctrs[0])],
+            [self.state[0], self.state[1], self.state[2], add64!(self.state[3], self.ctrs[1])],
+            [self.state[0], self.state[1], self.state[2], add64!(self.state[3], self.ctrs[2])],
         ];
 
         for _ in 0..R::COUNT {
@@ -255,12 +226,13 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
             for state_row in 0..4 {
                 add_assign_vec!(self.results[block][state_row], self.state[state_row]);
             }
+            // add the counters since `self.state` is only 1 block
             if block > 0 {
                 self.results[block][3] = add64!(self.results[block][3], self.ctrs[block - 1]);
             }
         }
 
-        self.increment_counter(Self::PAR_BLOCKS as i32);
+        self.increment_counter(PAR_BLOCKS as i32);
     }
 }
 
@@ -308,10 +280,6 @@ unsafe fn add_xor_rot(blocks: &mut [[uint32x4_t; 4]; 4]) {
         };
     }
     for block in blocks.iter_mut() {
-        // this part of the code cannot be reduced much more without having
-        // to deal with some problems regarding the intrinsics within `rotate_left` 
-        // requiring the second argument to be a const, and const arrays cannot be 
-        // indexed by non-consts
         add_assign_vec!(block[0], block[1]);
         xor_assign_vec!(block[3], block[0]);
         rotate_left!(block[3], 16);

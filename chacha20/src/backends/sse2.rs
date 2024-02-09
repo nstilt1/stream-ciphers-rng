@@ -60,27 +60,24 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
         unsafe { self.v[3] = _mm_add_epi32(self.v[3], _mm_set_epi32(0, 0, 0, amount)) }
     }
 
-    /// Generates a single block and blindly writes it to `dest_ptr`
-    ///
-    /// # Safety
-    /// - `dest_ptr` must have at least 64 bytes available to be overwritten, or else it
-    /// could cause a segmentation fault and/or undesired behavior
-    /// - `dest_ptr` should be aligned on a 16-byte boundary
-    #[cfg(feature = "rng")]
+    /// Generates 4 blocks of data and writes it to the buffer
     #[inline(always)]
-    pub(super) unsafe fn write_ks_blocks_aligned(&mut self, dest_ptr: *mut u32, num_blocks: usize) {
-        let mut block_ptr = dest_ptr as *mut __m128i;
-        for _i in 0..num_blocks {
-            self.rounds();
-            self.increment_counter(1);
+    #[cfg(feature = "rng")]
+    pub(super) fn generate(&mut self, buffer: &mut [u32; 64]) {
+        let mut dest_ptr = buffer.as_mut_ptr() as *mut __m128i;
+        for _i in 0..4 {
+            unsafe {
+                self.rounds();
+                self.increment_counter(1);
 
-            for i in 0..4 {
-                _mm_store_si128(block_ptr.add(i), self.res[i]);
+                for i in 0..4 {
+                    _mm_storeu_si128(dest_ptr.add(i), self.res[i]);
+                }
+                dest_ptr = dest_ptr.add(4);
             }
-            block_ptr = block_ptr.add(4);
         }
     }
-    
+
     #[inline]
     #[target_feature(enable = "sse2")]
     unsafe fn rounds(&mut self) {
@@ -123,7 +120,7 @@ impl<R: Rounds, V: Variant> StreamBackend for Backend<R, V> {
     fn gen_ks_block(&mut self, block: &mut Block) {
         unsafe {
             let dest_ptr = block.as_mut_ptr() as *mut __m128i;
-        
+
             self.rounds();
             self.increment_counter(1);
 
