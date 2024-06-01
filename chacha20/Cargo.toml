@@ -41,6 +41,7 @@ rng = ["rand_core"]
 serde1 = ["serde"]
 std = ["cipher/std"]
 xchacha = ["cipher"]
+zeroize = ["dep:zeroize", "cipher?/zeroize"]
 
 [package.metadata.docs.rs]
 all-features = true
