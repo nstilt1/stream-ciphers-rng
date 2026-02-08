@@ -288,52 +288,57 @@ macro_rules! impl_chacha_rng {
                 result
             }
 
-            /// Serialize RNG state.
+            /// Sets the last row of the state using a pointer so that any type 
+            /// of data can be used, and it sets all words of the last row in 
+            /// one method call, as opposed to 2.
+            /// 
+            /// # Safety
+            /// 
+            /// * **Alignment**: The `data` pointer must be aligned to at least a 4-byte boundary.
+            /// * **Initialization**: The memory pointed to by `data` must be fully initialized for 16 bytes.
+            /// * **Layout**: The caller must ensure the source data has no internal padding. 
+            ///   If using a struct as the source, it must be `#[repr(C, packed(4))]` or `#[repr(C)]` 
+            ///   with fields that total exactly 128 bits without padding.
+            /// 
+            /// # Example 
+            /// ```rust
+            /// use chacha20::{ChaCha8Rng, rand_core::SeedableRng};
+            /// #[repr(C, packed(4))]
+            /// struct LastRow {
+            ///     a: u32,
+            ///     b: u64,
+            ///     c: u32,
+            /// }
             ///
-            /// # Warning
-            /// Leaking serialized RNG state to an attacker defeats security properties
-            /// provided by the RNG.
+            /// impl LastRow {
+            ///     #[inline(always)]
+            ///     pub fn new(a: u32, b: u64, c: u32) -> Self {
+            ///         Self {
+            ///             a: a.to_le(),
+            ///             b: b.to_le(),
+            ///             c: c.to_le()
+            ///         }
+            ///     }
+            /// 
+            ///     #[inline(always)]
+            ///     pub fn as_u32_ptr(&self) -> *const u32 {
+            ///         let struct_pointer: *const Self = self;
+            ///         struct_pointer as *const u32
+            ///     }
+            /// }
+            /// 
+            /// let mut rng = ChaCha8Rng::from_seed([0u8; 32]);
+            /// // maxing out state[12] makes it harder to 
+            /// // replicate with IETF variants, which many implementations use
+            /// let last_row = LastRow::new(u32::MAX, 2, 3);
+            /// unsafe {
+            ///     rng.set_last_row(last_row.as_u32_ptr());
+            /// }
+            /// ```
             #[inline]
-            pub fn serialize_state(&self) -> SerializedRngState {
-                let seed = self.get_seed();
-                let stream = self.get_stream().to_le_bytes();
-                let word_pos = self.get_word_pos().to_le_bytes();
-
-                let mut res = [0u8; 49];
-                let (seed_dst, res_rem) = res.split_at_mut(32);
-                let (stream_dst, word_pos_dst) = res_rem.split_at_mut(8);
-
-                seed_dst.copy_from_slice(&seed);
-                stream_dst.copy_from_slice(&stream);
-                word_pos_dst.copy_from_slice(&word_pos[..9]);
-
-                debug_assert_eq!(&word_pos[9..], &[0u8; 7]);
-
-                res
-            }
-
-            /// Deserialize RNG state.
-            #[inline]
-            pub fn deserialize_state(state: &SerializedRngState) -> Self {
-                let (seed, state_rem) = state.split_at(32);
-                let (stream, word_pos_raw) = state_rem.split_at(8);
-
-                let seed: &[u8; 32] = seed.try_into().expect("seed.len() is equal to 32");
-                let stream: &[u8; 8] = stream.try_into().expect("stream.len() is equal to 8");
-
-                // Note that we use only 68 bits from `word_pos_raw`, i.e. 4 remaining bits
-                // get ignored and should be equal to zero in practice.
-                let mut word_pos_buf = [0u8; 16];
-                word_pos_buf[..9].copy_from_slice(word_pos_raw);
-                let word_pos = u128::from_le_bytes(word_pos_buf);
-
-                let core = ChaChaCore::new_internal(seed, stream);
-                let mut res = Self {
-                    core: BlockRng::new(core),
-                };
-
-                res.set_word_pos(word_pos);
-                res
+            pub unsafe fn set_last_row(&mut self, data: *const u32) {
+                self.core.reset_and_skip(0);
+                unsafe{core::ptr::copy_nonoverlapping(data, self.core.core.state.as_mut_ptr().add(12), 4)}
             }
         }
     };
@@ -342,3 +347,49 @@ macro_rules! impl_chacha_rng {
 impl_chacha_rng!(ChaCha8Rng, R8);
 impl_chacha_rng!(ChaCha12Rng, R12);
 impl_chacha_rng!(ChaCha20Rng, R20);
+
+#[cfg(test)]
+mod tests {
+    use rand_core::Rng;
+
+    use super::*;
+
+    #[repr(C, packed(4))]
+    struct LastRow {
+        a: u32,
+        b: u64,
+        c: u32,
+    }
+
+    impl LastRow {
+        #[inline(always)]
+        pub fn new(a: u32, b: u64, c: u32) -> Self {
+            Self {
+                a: a.to_le(),
+                b: b.to_le(),
+                c: c.to_le()
+            }
+        }
+
+        #[inline(always)]
+        pub fn as_u32_ptr(&self) -> *const u32 {
+            let struct_pointer: *const Self = self;
+            struct_pointer as *const u32
+        }
+    }
+
+    #[test]
+    fn set_last_row() {
+        let mut rng_1 = ChaCha8Rng::from_seed([0u8; 32]);
+        let mut rng_2 = ChaCha8Rng::from_seed([0u8; 32]);
+
+        rng_1.set_stream(1);
+        rng_1.set_block_pos(1);
+
+        let last_row = LastRow::new(1, 1 << 32, 0);
+        unsafe {
+            rng_2.set_last_row(last_row.as_u32_ptr());
+        }
+        assert_eq!(rng_1.next_u32(), rng_2.next_u32());
+    }
+}
