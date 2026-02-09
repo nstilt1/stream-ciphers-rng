@@ -33,7 +33,7 @@ use original_chacha::rand_core::{Rng as _, SeedableRng as _};
 fn bench_chacha20rng(c: &mut Benchmarker) {
     let mut group = c.benchmark_group("ChaCha20Rng");
     
-    for size in &[KB, 2 * KB, 4 * KB, 8 * KB, 16 * KB] {
+    for size in &[256, KB, 2 * KB, 4 * KB, 8 * KB, 16 * KB] {
         let mut buf = vec![0u8; *size];
 
         group.throughput(Throughput::Bytes(*size as u64));
@@ -44,7 +44,7 @@ fn bench_chacha20rng(c: &mut Benchmarker) {
         });
     }
 
-    for size in &[KB, 2 * KB, 4 * KB, 8 * KB, 16 * KB] {
+    for size in &[256, KB, 2 * KB, 4 * KB, 8 * KB, 16 * KB] {
         let mut buf = vec![0u8; *size];
 
         group.throughput(Throughput::Bytes(*size as u64));
