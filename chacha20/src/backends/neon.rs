@@ -89,14 +89,24 @@ where
 #[cfg(feature = "rng")]
 #[inline]
 #[target_feature(enable = "neon")]
-pub(crate) unsafe fn rng_inner<R, V>(core: &mut ChaChaCore<R, V>, buffer: &mut [u32; 64])
-where
+pub(crate) unsafe fn rng_inner<R, V>(
+    core: &mut ChaChaCore<R, V>,
+    dest_ptr: *mut u8,
+    num_bytes: usize,
+    fill_buffer: bool,
+    buffer: &mut [u32; 64],
+) where
     R: Rounds,
     V: Variant,
 {
     let mut backend = Backend::<R, V>::new(&mut core.state);
 
-    backend.write_par_ks_blocks(buffer);
+    for parblocks in 0..(num_bytes / 256) {
+        backend.write_par_ks_blocks(dest_ptr.add(256 * parblocks));
+    }
+    if fill_buffer {
+        backend.write_par_ks_blocks(buffer.as_mut_ptr() as *mut u8);
+    }
 
     vst1q_u64(
         core.state.as_mut_ptr().offset(12).cast::<u64>(),
@@ -223,7 +233,7 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
     /// `dest_ptr` must have at least `64 * num_blocks` bytes available to be
     /// overwritten, or else it could produce undefined behavior
     #[cfg(feature = "rng")]
-    unsafe fn write_par_ks_blocks(&mut self, buffer: &mut [u32; 64]) {
+    unsafe fn write_par_ks_blocks(&mut self, mut dest_ptr: *mut u8) {
         let mut blocks = [
             [self.state[0], self.state[1], self.state[2], self.state[3]],
             [
@@ -250,7 +260,6 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
             double_quarter_round(&mut blocks);
         }
 
-        let mut dest_ptr = buffer.as_mut_ptr().cast::<u8>();
         for block in 0..4 {
             // add state to block
             for state_row in 0..3 {

@@ -48,16 +48,40 @@ impl<R: Rounds, V: Variant> StreamCipherBackend for Backend<'_, R, V> {
 #[cfg(feature = "rng")]
 impl<R: Rounds, V: Variant> Backend<'_, R, V> {
     #[inline(always)]
-    pub(crate) fn gen_ks_blocks(&mut self, buffer: &mut [u32; 64]) {
-        for block in 0..4 {
-            let res = run_rounds::<R>(&self.0.state);
-            let mut ctr = (u64::from(self.0.state[13]) << 32) | u64::from(self.0.state[12]);
-            ctr = ctr.wrapping_add(1);
-            self.0.state[12] = ctr as u32;
-            self.0.state[13] = (ctr >> 32) as u32;
+    pub(crate) fn gen_ks_blocks(
+        &mut self,
+        dest_ptr: *mut u8,
+        num_bytes: usize,
+        fill_buffer: bool,
+        buffer: &mut [u32; 64],
+    ) {
+        for _ in 0..(num_bytes / 256) {
+            for block in 0..4 {
+                let res = run_rounds::<R>(&self.0.state);
+                let mut ctr = (u64::from(self.0.state[13]) << 32) | u64::from(self.0.state[12]);
+                ctr = ctr.wrapping_add(1);
+                self.0.state[12] = ctr as u32;
+                self.0.state[13] = (ctr >> 32) as u32;
 
-            buffer[block * BLOCK_WORDS as usize..(block + 1) * BLOCK_WORDS as usize]
-                .copy_from_slice(&res);
+                unsafe {
+                    let mut block_ptr = dest_ptr as *mut u32;
+                    for val in res.iter() {
+                        block_ptr.write_unaligned(val.to_le());
+                        block_ptr = block_ptr.add(1);
+                    }
+                }
+            }
+        }
+        if fill_buffer {
+            for block in 0..4 {
+                let res = run_rounds::<R>(&self.0.state);
+                let mut ctr = (u64::from(self.0.state[13]) << 32) | u64::from(self.0.state[12]);
+                ctr = ctr.wrapping_add(1);
+                self.0.state[12] = ctr as u32;
+                self.0.state[13] = (ctr >> 32) as u32;
+                buffer[block * BLOCK_WORDS as usize..(block + 1) * BLOCK_WORDS as usize]
+                    .copy_from_slice(&res)
+            }
         }
     }
 }

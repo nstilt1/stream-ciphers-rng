@@ -3,13 +3,12 @@
 #![cfg(feature = "rng")]
 
 use chacha20::{
-    ChaCha8Rng, ChaCha12Rng, ChaCha20Rng, SerializedRngState,
+    ChaCha20Rng,
     rand_core::{Rng, SeedableRng},
 };
 use hex_literal::hex;
 
 const KEY: [u8; 32] = hex!("0102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F20");
-const STREAM: u64 = 0xF0F1F2F3_F4F5F6F7;
 const BLOCK_WORDS: u8 = 16;
 
 #[test]

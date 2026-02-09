@@ -3,13 +3,10 @@
 
 use core::fmt;
 
-use rand_core::{
-    Infallible, SeedableRng, TryCryptoRng, TryRng,
-    block::{BlockRng, Generator},
-};
+use rand_core::{Infallible, SeedableRng, TryCryptoRng, TryRng};
 
 #[cfg(feature = "zeroize")]
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::ZeroizeOnDrop;
 
 use crate::{
     ChaChaCore, R8, R12, R20, Rounds, backends,
@@ -41,25 +38,56 @@ impl<R: Rounds, V: Variant> SeedableRng for ChaChaCore<R, V> {
     }
 }
 
-impl<R: Rounds, V: Variant> Generator for ChaChaCore<R, V> {
-    type Output = [u32; BUFFER_SIZE];
+trait Observable: Copy {
+    type Bytes: Sized + AsRef<[u8]>;
+    fn to_le_bytes(self) -> Self::Bytes;
+}
+impl Observable for u32 {
+    type Bytes = [u8; 4];
 
-    /// Generates 4 blocks in parallel with avx2 & neon, but merely fills
-    /// 4 blocks with sse2 & soft
-    fn generate(&mut self, buffer: &mut [u32; BUFFER_SIZE]) {
+    fn to_le_bytes(self) -> Self::Bytes {
+        Self::to_le_bytes(self)
+    }
+}
+
+fn fill_via_chunks<T: Observable>(src: &[T], dest: &mut [u8]) -> (usize, usize) {
+    let size = size_of::<T>();
+
+    // Always use little endian for portability of results.
+
+    let mut dest = dest.chunks_exact_mut(size);
+    let mut src = src.iter();
+
+    let zipped = dest.by_ref().zip(src.by_ref());
+    let num_chunks = zipped.len();
+    zipped.for_each(|(dest, src)| dest.copy_from_slice(src.to_le_bytes().as_ref()));
+
+    let byte_len = num_chunks * size;
+    if let (dest_tail @ [_, ..], Some(src)) = (dest.into_remainder(), src.next()) {
+        let n = dest_tail.len();
+        dest_tail.copy_from_slice(&src.to_le_bytes().as_ref()[..n]);
+        (num_chunks + 1, byte_len + n)
+    } else {
+        (num_chunks, byte_len)
+    }
+}
+
+impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
+    fn generate(&mut self, dest_ptr: *mut u8, num_bytes: usize, buffer: &mut [u32; BUFFER_SIZE]) {
+        let fill_buffer = num_bytes % (BUFFER_SIZE * 4) != 0;
         cfg_if! {
             if #[cfg(chacha20_backend = "soft")] {
-                backends::soft::Backend(self).gen_ks_blocks(buffer);
+                backends::soft::Backend(self).gen_ks_blocks(dest_ptr, num_bytes, fill_buffer, buffer);
             } else if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
                 cfg_if! {
                     // AVX-512 doesn't support RNG, so use AVX-2 instead
                     if #[cfg(any(chacha20_backend = "avx2", chacha20_backend = "avx512"))] {
                         unsafe {
-                            backends::avx2::rng_inner::<R, V>(self, buffer);
+                            backends::avx2::rng_inner::<R, V>(self, dest_ptr, num_bytes, fill_buffer, buffer);
                         }
                     } else if #[cfg(chacha20_backend = "sse2")] {
                         unsafe {
-                            backends::sse2::rng_inner::<R, V>(self, buffer);
+                            backends::sse2::rng_inner::<R, V>(self, dest_ptr, num_bytes, fill_buffer, buffer);
                         }
                     } else {
                         #[cfg(chacha20_avx512)]
@@ -69,33 +97,26 @@ impl<R: Rounds, V: Variant> Generator for ChaChaCore<R, V> {
 
                         if avx2_token.get() {
                             unsafe {
-                                backends::avx2::rng_inner::<R, V>(self, buffer);
+                                backends::avx2::rng_inner::<R, V>(self, dest_ptr, num_bytes, fill_buffer, buffer);
                             }
                         } else if sse2_token.get() {
                             unsafe {
-                                backends::sse2::rng_inner::<R, V>(self, buffer);
+                                backends::sse2::rng_inner::<R, V>(self, dest_ptr, num_bytes, fill_buffer, buffer);
                             }
                         } else {
-                            backends::soft::Backend(self).gen_ks_blocks(buffer);
+                            backends::soft::Backend(self).gen_ks_blocks(dest_ptr, num_bytes, fill_buffer, buffer);
                         }
                     }
                 }
             } else if #[cfg(all(target_arch = "aarch64", target_feature = "neon"))] {
                 // SAFETY: we have used conditional compilation to ensure NEON is available
                 unsafe {
-                    backends::neon::rng_inner::<R, V>(self, buffer);
+                    backends::neon::rng_inner::<R, V>(self, dest_ptr, num_bytes, fill_buffer, buffer);
                 }
             } else {
-                backends::soft::Backend(self).gen_ks_blocks(buffer);
+                backends::soft::Backend(self).gen_ks_blocks(dest_ptr, num_bytes, fill_buffer, buffer);
             }
         }
-    }
-
-    // `Drop` impl of `BlockRng` calls this method and passes reference to
-    // its internal buffer in `output`. So we zeroize its contents here.
-    #[cfg(feature = "zeroize")]
-    fn drop(&mut self, output: &mut Self::Output) {
-        output.zeroize();
     }
 }
 
@@ -132,7 +153,9 @@ macro_rules! impl_chacha_rng {
         ///
         /// See the [`rand`](https://docs.rs/rand/) crate for more advanced RNG functionality.
         pub struct $Rng {
-            core: BlockRng<ChaChaCore<$rounds, Legacy>>,
+            core: ChaChaCore<$rounds, Legacy>,
+            index: usize,
+            buffer: [u32; BUFFER_SIZE],
         }
 
         impl SeedableRng for $Rng {
@@ -142,7 +165,9 @@ macro_rules! impl_chacha_rng {
             fn from_seed(seed: Self::Seed) -> Self {
                 let core = ChaChaCore::new_internal(&seed, &[0u8; 8]);
                 Self {
-                    core: BlockRng::new(core),
+                    core,
+                    index: BUFFER_SIZE,
+                    buffer: [0u32; BUFFER_SIZE],
                 }
             }
         }
@@ -152,15 +177,78 @@ macro_rules! impl_chacha_rng {
 
             #[inline]
             fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
-                Ok(self.core.next_word())
+                if self.index >= BUFFER_SIZE {
+                    self.core.generate(
+                        self.buffer.as_mut_ptr() as *mut u8,
+                        BUFFER_SIZE * 4,
+                        &mut self.buffer,
+                    );
+                    self.index = 0;
+                }
+                let value = self.buffer[self.index];
+                self.index += 1;
+                Ok(value)
             }
             #[inline]
             fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
-                Ok(self.core.next_u64_from_u32())
+                let mut new_index;
+                let (mut lo, mut hi);
+                if self.index < BUFFER_SIZE - 1 {
+                    lo = self.buffer[self.index];
+                    hi = self.buffer[self.index + 1];
+                    new_index = self.index + 2;
+                } else {
+                    lo = self.buffer[BUFFER_SIZE - 1];
+                    self.core.generate(
+                        self.buffer.as_mut_ptr() as *mut u8,
+                        BUFFER_SIZE * 4,
+                        &mut self.buffer,
+                    );
+                    hi = self.buffer[0];
+                    new_index = 1;
+                    if self.index >= BUFFER_SIZE {
+                        lo = hi;
+                        hi = self.buffer[1];
+                        new_index = 2;
+                    }
+                }
+                self.index = new_index;
+                Ok((u64::from(hi) << 32) | u64::from(lo))
             }
             #[inline]
             fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Self::Error> {
-                self.core.fill_bytes(dest);
+                let dest_len = dest.len();
+                let remaining = ((BUFFER_SIZE * 4) - (self.index * 4)).min(dest_len);
+
+                let mut dest_pos = 0;
+
+                if remaining != 0 && self.index < BUFFER_SIZE && self.index != 0 {
+                    let (consumed_u32, filled_u8) =
+                        fill_via_chunks(&self.buffer.as_ref()[self.index..], &mut dest[0..]);
+                    self.index += consumed_u32;
+                    debug_assert!(self.index <= BUFFER_SIZE);
+                    dest_pos += filled_u8;
+
+                    if dest_len == dest_pos {
+                        return Ok(());
+                    }
+                }
+
+                let remaining = dest_len - dest_pos;
+                unsafe {
+                    let chunk_ptr = dest.as_mut_ptr().add(dest_pos);
+                    self.core
+                        .generate(chunk_ptr as *mut u8, remaining, &mut self.buffer);
+                }
+                let parblocks = remaining / 256;
+                dest_pos += parblocks * 256;
+                if dest_pos == dest_len {
+                    return Ok(());
+                }
+
+                let (consumed_u32, _filled_u8) =
+                    fill_via_chunks(&self.buffer.as_ref()[0..], &mut dest[dest_pos..]);
+                self.index = consumed_u32;
                 Ok(())
             }
         }
@@ -200,15 +288,31 @@ macro_rules! impl_chacha_rng {
             #[inline]
             #[must_use]
             pub fn get_word_pos(&self) -> u128 {
-                let mut block_counter = (u64::from(self.core.core.state[13]) << 32)
-                    | u64::from(self.core.core.state[12]);
-                if self.core.word_offset() != 0 {
+                let mut block_counter =
+                    (u64::from(self.core.state[13]) << 32) | u64::from(self.core.state[12]);
+                if self.index != 0 {
                     block_counter = block_counter.wrapping_sub(u64::from(BUF_BLOCKS));
                 }
-                let word_pos = u128::from(block_counter) * u128::from(BLOCK_WORDS)
-                    + self.core.word_offset() as u128;
+                let word_pos =
+                    u128::from(block_counter) * u128::from(BLOCK_WORDS) + self.index as u128;
                 // eliminate bits above the 68th bit
                 word_pos & ((1 << 68) - 1)
+            }
+
+            #[inline(always)]
+            fn reset(&mut self, mut index: usize) {
+                self.buffer = [0u32; BUFFER_SIZE];
+                if index != 0 && index != BUFFER_SIZE {
+                    self.core.generate(
+                        self.buffer.as_mut_ptr() as *mut u8,
+                        BUFFER_SIZE * 4,
+                        &mut self.buffer,
+                    );
+                }
+                if index == 0 {
+                    index = BUFFER_SIZE;
+                }
+                self.index = index;
             }
 
             /// Set the offset from the start of the stream, in 32-bit words.
@@ -225,9 +329,9 @@ macro_rules! impl_chacha_rng {
                 let index = (word_offset % u128::from(BLOCK_WORDS)) as usize;
                 let counter = word_offset / u128::from(BLOCK_WORDS);
                 //self.set_block_pos(counter as u64);
-                self.core.core.state[12] = counter as u32;
-                self.core.core.state[13] = (counter >> 32) as u32;
-                self.core.reset_and_skip(index);
+                self.core.state[12] = counter as u32;
+                self.core.state[13] = (counter >> 32) as u32;
+                self.reset(index);
             }
 
             /// Sets the block pos and resets the RNG's index.
@@ -240,8 +344,8 @@ macro_rules! impl_chacha_rng {
             #[inline]
             #[allow(unused)]
             pub fn set_block_pos(&mut self, block_pos: u64) {
-                self.core.reset_and_skip(0);
-                self.core.core.set_block_pos(block_pos);
+                self.reset(0);
+                self.core.set_block_pos(block_pos);
             }
 
             /// Get the block pos.
@@ -249,8 +353,8 @@ macro_rules! impl_chacha_rng {
             #[allow(unused)]
             #[must_use]
             pub fn get_block_pos(&self) -> u64 {
-                let counter = self.core.core.get_block_pos();
-                let offset = self.core.word_offset();
+                let counter = self.core.get_block_pos();
+                let offset = self.index;
                 if offset != 0 {
                     counter - u64::from(BUF_BLOCKS) + offset as u64 / 16
                 } else {
@@ -261,8 +365,8 @@ macro_rules! impl_chacha_rng {
             /// Set the stream ID and reset the `word_pos` to 0.
             #[inline]
             pub fn set_stream(&mut self, stream: u64) {
-                self.core.core.state[14] = stream as u32;
-                self.core.core.state[15] = (stream >> 32) as u32;
+                self.core.state[14] = stream as u32;
+                self.core.state[15] = (stream >> 32) as u32;
                 self.set_block_pos(0);
             }
 
@@ -271,8 +375,8 @@ macro_rules! impl_chacha_rng {
             #[must_use]
             pub fn get_stream(&self) -> u64 {
                 let mut result = [0u8; 8];
-                result[..4].copy_from_slice(&self.core.core.state[14].to_le_bytes());
-                result[4..].copy_from_slice(&self.core.core.state[15].to_le_bytes());
+                result[..4].copy_from_slice(&self.core.state[14].to_le_bytes());
+                result[4..].copy_from_slice(&self.core.state[15].to_le_bytes());
                 u64::from_le_bytes(result)
             }
 
@@ -280,7 +384,7 @@ macro_rules! impl_chacha_rng {
             #[inline]
             #[must_use]
             pub fn get_seed(&self) -> [u8; 32] {
-                let seed = &self.core.core.state[4..12];
+                let seed = &self.core.state[4..12];
                 let mut result = [0u8; 32];
                 for (src, dst) in seed.iter().zip(result.chunks_exact_mut(4)) {
                     dst.copy_from_slice(&src.to_le_bytes())
@@ -288,19 +392,19 @@ macro_rules! impl_chacha_rng {
                 result
             }
 
-            /// Sets the last row of the state using a pointer so that any type 
-            /// of data can be used, and it sets all words of the last row in 
+            /// Sets the last row of the state using a pointer so that any type
+            /// of data can be used, and it sets all words of the last row in
             /// one method call, as opposed to 2.
-            /// 
+            ///
             /// # Safety
-            /// 
+            ///
             /// * **Alignment**: The `data` pointer must be aligned to at least a 4-byte boundary.
             /// * **Initialization**: The memory pointed to by `data` must be fully initialized for 16 bytes.
-            /// * **Layout**: The caller must ensure the source data has no internal padding. 
-            ///   If using a struct as the source, it must be `#[repr(C, packed(4))]` or `#[repr(C)]` 
+            /// * **Layout**: The caller must ensure the source data has no internal padding.
+            ///   If using a struct as the source, it must be `#[repr(C, packed(4))]` or `#[repr(C)]`
             ///   with fields that total exactly 128 bits without padding.
-            /// 
-            /// # Example 
+            ///
+            /// # Example
             /// ```rust
             /// use chacha20::{ChaCha8Rng, rand_core::SeedableRng};
             /// #[repr(C, packed(4))]
@@ -319,16 +423,16 @@ macro_rules! impl_chacha_rng {
             ///             c: c.to_le()
             ///         }
             ///     }
-            /// 
+            ///
             ///     #[inline(always)]
             ///     pub fn as_u32_ptr(&self) -> *const u32 {
             ///         let struct_pointer: *const Self = self;
             ///         struct_pointer as *const u32
             ///     }
             /// }
-            /// 
+            ///
             /// let mut rng = ChaCha8Rng::from_seed([0u8; 32]);
-            /// // maxing out state[12] makes it harder to 
+            /// // maxing out state[12] makes it harder to
             /// // replicate with IETF variants, which many implementations use
             /// let last_row = LastRow::new(u32::MAX, 2, 3);
             /// unsafe {
@@ -337,8 +441,10 @@ macro_rules! impl_chacha_rng {
             /// ```
             #[inline]
             pub unsafe fn set_last_row(&mut self, data: *const u32) {
-                self.core.reset_and_skip(0);
-                unsafe{core::ptr::copy_nonoverlapping(data, self.core.core.state.as_mut_ptr().add(12), 4)}
+                self.reset(0);
+                unsafe {
+                    core::ptr::copy_nonoverlapping(data, self.core.state.as_mut_ptr().add(12), 4)
+                }
             }
         }
     };
@@ -350,7 +456,11 @@ impl_chacha_rng!(ChaCha20Rng, R20);
 
 #[cfg(test)]
 mod tests {
-    use rand_core::Rng;
+    use rand_core::{Rng, SeedableRng};
+
+    use original_chacha::{
+        ChaCha8Rng as OracleRng, rand_core::Rng as _, rand_core::SeedableRng as _,
+    };
 
     use super::*;
 
@@ -367,7 +477,7 @@ mod tests {
             Self {
                 a: a.to_le(),
                 b: b.to_le(),
-                c: c.to_le()
+                c: c.to_le(),
             }
         }
 
@@ -391,5 +501,35 @@ mod tests {
             rng_2.set_last_row(last_row.as_u32_ptr());
         }
         assert_eq!(rng_1.next_u32(), rng_2.next_u32());
+    }
+
+    #[test]
+    fn rng_fill_bytes_tests() {
+        let mut oracle = OracleRng::from_seed([0u8; 32]);
+        let mut test_rng = ChaCha8Rng::from_seed([0u8; 32]);
+
+        let mut arr = [0u8; 4096];
+        let mut test = [0u8; 4096];
+
+        for _ in 0..10 {
+            for size in 1..4096 {
+                let word_pos = oracle.get_word_pos();
+                oracle.fill_bytes(&mut arr[0..size]);
+                test_rng.fill_bytes(&mut test[0..size]);
+                for byte in 0..size {
+                    let word = word_pos + (byte as u128 / 4);
+                    assert!(
+                        arr[byte] == test[byte],
+                        "Inequal byte at byte #{}, word #{}, state #{}, o = {} != {}, size = {}",
+                        byte,
+                        word,
+                        word % 16,
+                        arr[byte],
+                        test[byte],
+                        size
+                    );
+                }
+            }
+        }
     }
 }

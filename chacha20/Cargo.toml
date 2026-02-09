@@ -1,6 +1,6 @@
 [package]
 name = "chacha20"
-version = "0.10.0"
+version = "0.10.1"
 authors = ["RustCrypto Developers"]
 edition = "2024"
 rust-version = "1.85"
@@ -32,6 +32,7 @@ cpufeatures = "0.3"
 [dev-dependencies]
 cipher = { version = "0.5", features = ["dev"] }
 hex-literal = "1"
+original_chacha = { package = "chacha20", version = "0.10", default-features = false, features = ["rng"] }
 
 [features]
 default = ["cipher"]

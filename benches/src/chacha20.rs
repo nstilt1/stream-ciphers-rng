@@ -28,6 +28,7 @@ fn bench(c: &mut Benchmarker) {
 }
 
 use chacha20::rand_core::{Rng, SeedableRng};
+use original_chacha::rand_core::{Rng as _, SeedableRng as _};
 
 fn bench_chacha20rng(c: &mut Benchmarker) {
     let mut group = c.benchmark_group("ChaCha20Rng");
@@ -39,6 +40,17 @@ fn bench_chacha20rng(c: &mut Benchmarker) {
 
         group.bench_function(BenchmarkId::new("fill_bytes", size), |b| {
             let mut rng = chacha20::ChaCha20Rng::from_seed([0u8; 32]);
+            b.iter(|| rng.fill_bytes(&mut buf));
+        });
+    }
+
+    for size in &[KB, 2 * KB, 4 * KB, 8 * KB, 16 * KB] {
+        let mut buf = vec![0u8; *size];
+
+        group.throughput(Throughput::Bytes(*size as u64));
+
+        group.bench_function(BenchmarkId::new("OG_ChaCha_fill_bytes", size), |b| {
+            let mut rng = original_chacha::ChaCha20Rng::from_seed([0u8; 32]);
             b.iter(|| rng.fill_bytes(&mut buf));
         });
     }

@@ -12,6 +12,29 @@ Pure Rust implementation of the [ChaCha20 Stream Cipher][1].
 
 <img src="https://raw.githubusercontent.com/RustCrypto/meta/master/img/stream-ciphers/chacha20.png" width="300px">
 
+## Fork Info
+
+This repository has been forked from `RustCrypto/stream-ciphers` to enable higher throughput with `chacha20`'s RNGs. The original repo uses this process to fill a user-provided buffer:
+
+1) Receive `fill_bytes()` call.
+2) Copy from and exhaust the RNG's internal buffer.
+3) Initialize a backend struct.
+4) Backend copies data into the RNG's internal buffer and updates its counter.
+5) Repeat steps 2-5 until the user's buffer is filled.
+
+This can be simplified to have the `fill_bytes()` implementation pass a pointer to the backend instead of filling redundant buffers. The performance improvement can be seen here, where the `Native` column is optimized via `-C target-cpu=native` on a `Raptor Lake Refresh i9` CPU:
+
+| Implementation | AVX2 (cpb) | Native (cpb) | Improvement |
+| :--- | :---: | :---: | :--- |
+| Mainstream (v0.3) | 1.0102 | 0.9443 | - |
+| **This Fork** | **0.9264** | **0.8632** | **~9.4%** |
+
+With this improvement, you could make your own RNG wrapper with a larger buffer, as the RNG's buffer is completely bypassed when you fill a buffer that is a multiple of 256 bytes. When you combine a `union` into the mix, you could fill multiple private key buffers at the same time without copies anywhere between the generation and filling the arrays (besides from the backend).
+
+Further, this fork provides a method for setting the fourth row (`state[12]-[15]`) of the state using a pointer to 128 bits of data. This method removes the need for any conversions, and allows custom data layouts for the fourth row. This can help for using a nonce larger than 64 bits and splitting it into smaller data types for enhanced domain separation.
+
+No changes were made to any logic, just the data plumbing. Some unsafe code was used to enable pointer arithmetic.
+
 ## About
 
 [ChaCha20][1] is a [stream cipher][2] which is designed to support

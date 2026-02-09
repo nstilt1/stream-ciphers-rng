@@ -81,7 +81,7 @@ where
 #[inline]
 #[target_feature(enable = "avx2")]
 #[cfg(feature = "rng")]
-pub(crate) unsafe fn rng_inner<R, V>(core: &mut ChaChaCore<R, V>, buffer: &mut [u32; 64])
+pub(crate) unsafe fn rng_inner<R, V>(core: &mut ChaChaCore<R, V>, dest_ptr: *mut u8, num_bytes: usize, fill_buffer: bool, buffer: &mut [u32; 64])
 where
     R: Rounds,
     V: Variant,
@@ -105,7 +105,12 @@ where
         _pd: PhantomData,
     };
 
-    backend.rng_gen_par_ks_blocks(buffer);
+    for parblocks in 0..(num_bytes / 256) {
+        backend.rng_gen_par_ks_blocks(dest_ptr.add(256 * parblocks));
+    }
+    if fill_buffer {
+        backend.rng_gen_par_ks_blocks(buffer.as_mut_ptr() as *mut u8);
+    }
 
     core.state[12] = _mm256_extract_epi32(backend.ctr[0], 0) as u32;
     core.state[13] = _mm256_extract_epi32(backend.ctr[0], 1) as u32;
@@ -182,7 +187,7 @@ impl<R: Rounds, V: Variant> StreamCipherBackend for Backend<R, V> {
 #[cfg(feature = "rng")]
 impl<R: Rounds, V: Variant> Backend<R, V> {
     #[inline(always)]
-    fn rng_gen_par_ks_blocks(&mut self, blocks: &mut [u32; 64]) {
+    fn rng_gen_par_ks_blocks(&mut self, mut dest_ptr: *mut u8) {
         unsafe {
             let vs = rounds::<R>(&self.v, &self.ctr);
 
@@ -191,7 +196,7 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
                 *c = _mm256_add_epi64(*c, _mm256_set_epi64x(0, i64::from(pb), 0, i64::from(pb)));
             }
 
-            let mut block_ptr = blocks.as_mut_ptr().cast::<__m128i>();
+            let mut block_ptr = dest_ptr.cast::<__m128i>();
             for v in vs {
                 let t: [__m128i; 8] = core::mem::transmute(v);
                 for i in 0..4 {

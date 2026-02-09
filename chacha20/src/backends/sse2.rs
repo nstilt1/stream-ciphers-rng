@@ -111,7 +111,7 @@ impl<R: Rounds, V: Variant> StreamCipherBackend for Backend<R, V> {
 #[inline]
 #[target_feature(enable = "sse2")]
 #[cfg(feature = "rng")]
-pub(crate) unsafe fn rng_inner<R, V>(core: &mut ChaChaCore<R, V>, buffer: &mut [u32; 64])
+pub(crate) unsafe fn rng_inner<R, V>(core: &mut ChaChaCore<R, V>, dest_ptr: *mut u8, num_bytes: usize, fill_buffer: bool, buffer: &mut [u32; 64])
 where
     R: Rounds,
     V: Variant,
@@ -127,7 +127,12 @@ where
         _pd: PhantomData,
     };
 
-    backend.gen_ks_blocks(buffer);
+    for parblocks in 0..(num_bytes / 256) {
+        backend.gen_ks_blocks(dest_ptr.add(256 * parblocks));
+    }
+    if fill_buffer {
+        backend.gen_ks_blocks(buffer.as_mut_ptr() as *mut u8);
+    }
 
     core.state[12] = _mm_cvtsi128_si32(backend.v[3]) as u32;
     core.state[13] = _mm_extract_epi32(backend.v[3], 1) as u32;
@@ -136,13 +141,13 @@ where
 #[cfg(feature = "rng")]
 impl<R: Rounds, V: Variant> Backend<R, V> {
     #[inline(always)]
-    fn gen_ks_blocks(&mut self, block: &mut [u32; 64]) {
+    fn gen_ks_blocks(&mut self, dest_ptr: *mut u8) {
         const _: () = assert!(4 * PAR_BLOCKS * size_of::<__m128i>() == size_of::<[u32; 64]>());
         unsafe {
             let res = rounds::<R, V>(&self.v);
             self.v[3] = _mm_add_epi64(self.v[3], _mm_set_epi64x(0, PAR_BLOCKS as i64));
 
-            let blocks_ptr = block.as_mut_ptr().cast::<__m128i>();
+            let blocks_ptr = dest_ptr.cast::<__m128i>();
             for block in 0..PAR_BLOCKS {
                 for i in 0..4 {
                     _mm_storeu_si128(blocks_ptr.add(i + block * PAR_BLOCKS), res[block][i]);
