@@ -130,6 +130,12 @@ macro_rules! add_assign_vec {
     };
 }
 
+macro_rules! add_vec {
+    ($a:expr, $b:expr) => {
+        vaddq_u32($a, $b)
+    };
+}
+
 #[cfg(feature = "cipher")]
 impl<R: Rounds, V: Variant> StreamCipherBackend for Backend<R, V> {
     #[inline(always)]
@@ -225,6 +231,43 @@ macro_rules! extract {
 
 impl<R: Rounds, V: Variant> Backend<R, V> {
     #[inline(always)]
+    unsafe fn write_aligned(&mut self, dest_ptr: *mut u8) {
+        let base = dest_ptr as *mut [[uint32x4_t; 4]; 4];
+
+        let blocks = &mut *base;
+        for i in 0..4 {
+            let s3_val = if i == 0 {
+                self.state[3]
+            } else {
+                add_counter!(self.state[3], self.ctrs[i - 1], V)
+            };
+
+            blocks[i][0] = self.state[0];
+            blocks[i][1] = self.state[1];
+            blocks[i][2] = self.state[2];
+            blocks[i][3] = s3_val;
+        }
+
+        for _ in 0..R::COUNT {
+            double_quarter_round(blocks);
+        }
+
+        for i in 0..4 {
+            let counter_val = if i == 0 {
+                self.state[3]
+            } else {
+                add_counter!(self.state[3], self.ctrs[i - 1], V)
+            };
+
+            blocks[i][0] = add_vec!(blocks[i][0], self.state[0]);
+            blocks[i][1] = add_vec!(blocks[i][1], self.state[1]);
+            blocks[i][2] = add_vec!(blocks[i][2], self.state[2]);
+            blocks[i][3] = add_vec!(blocks[i][3], counter_val);
+        }
+        self.state[3] = add_counter!(self.state[3], self.ctrs[3], V);
+    }
+
+    #[inline(always)]
     /// Generates `num_blocks` blocks and blindly writes them to `dest_ptr`
     ///
     /// `num_blocks` must be greater than 0, and less than or equal to 4.
@@ -234,6 +277,10 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
     /// overwritten, or else it could produce undefined behavior
     #[cfg(feature = "rng")]
     unsafe fn write_par_ks_blocks(&mut self, mut dest_ptr: *mut u8) {
+        if (dest_ptr as usize) & 0xF == 0 {
+            self.write_aligned(dest_ptr);
+            return;
+        }
         let mut blocks = [
             [self.state[0], self.state[1], self.state[2], self.state[3]],
             [

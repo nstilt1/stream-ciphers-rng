@@ -1,8 +1,16 @@
 use criterion::Criterion;
 
-#[cfg(any(target_arch = "x86_64", target_arch = "x86", all(target_arch = "aarch64", target_os = "linux")))]
+#[cfg(any(
+    target_arch = "x86_64",
+    target_arch = "x86",
+    all(target_arch = "aarch64", target_os = "linux")
+))]
 pub type Benchmarker = Criterion<criterion_cycles_per_byte::CyclesPerByte>;
-#[cfg(not(any(target_arch = "x86_64", target_arch = "x86", all(target_arch = "aarch64", target_os = "linux"))))]
+#[cfg(not(any(
+    target_arch = "x86_64",
+    target_arch = "x86",
+    all(target_arch = "aarch64", target_os = "linux")
+)))]
 pub type Benchmarker = Criterion;
 
 #[macro_export]

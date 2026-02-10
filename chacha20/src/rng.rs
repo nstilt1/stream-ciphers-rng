@@ -458,9 +458,9 @@ impl_chacha_rng!(ChaCha20Rng, R20);
 mod tests {
     use rand_core::{Rng, SeedableRng};
 
-    use original_chacha::{
-        ChaCha8Rng as OracleRng, rand_core::Rng as _, rand_core::SeedableRng as _,
-    };
+    use original_chacha::ChaCha8Rng as OracleRng;
+    extern crate alloc;
+    use alloc::alloc::{Layout, alloc, dealloc};
 
     use super::*;
 
@@ -531,5 +531,44 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn aligned_fill_bytes() {
+        let size = 4096;
+
+        let layout = Layout::from_size_align(size, 16).unwrap();
+        let ptr = unsafe { alloc(layout) };
+
+        assert_eq!(ptr as usize & 0xF, 0);
+
+        let test = unsafe { core::slice::from_raw_parts_mut(ptr, size) };
+
+        let mut oracle = OracleRng::from_seed([0u8; 32]);
+        let mut test_rng = ChaCha8Rng::from_seed([0u8; 32]);
+
+        let mut arr = [0u8; 4096];
+
+        for _ in 0..10 {
+            for size in 1..4096 {
+                let word_pos = oracle.get_word_pos();
+                oracle.fill_bytes(&mut arr[0..size]);
+                test_rng.fill_bytes(&mut test[0..size]);
+                for byte in 0..size {
+                    let word = word_pos + (byte as u128 / 4);
+                    assert!(
+                        arr[byte] == test[byte],
+                        "Inequal byte at byte #{}, word #{}, state #{}, o = {} != {}, size = {}",
+                        byte,
+                        word,
+                        word % 16,
+                        arr[byte],
+                        test[byte],
+                        size
+                    );
+                }
+            }
+        }
+        unsafe { dealloc(ptr, layout) };
     }
 }
