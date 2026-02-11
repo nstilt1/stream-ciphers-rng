@@ -130,12 +130,6 @@ macro_rules! add_assign_vec {
     };
 }
 
-macro_rules! add_vec {
-    ($a:expr, $b:expr) => {
-        vaddq_u32($a, $b)
-    };
-}
-
 #[cfg(feature = "cipher")]
 impl<R: Rounds, V: Variant> StreamCipherBackend for Backend<R, V> {
     #[inline(always)]
@@ -259,10 +253,10 @@ impl<R: Rounds, V: Variant> Backend<R, V> {
                 add_counter!(self.state[3], self.ctrs[i - 1], V)
             };
 
-            blocks[i][0] = add_vec!(blocks[i][0], self.state[0]);
-            blocks[i][1] = add_vec!(blocks[i][1], self.state[1]);
-            blocks[i][2] = add_vec!(blocks[i][2], self.state[2]);
-            blocks[i][3] = add_vec!(blocks[i][3], counter_val);
+            add_assign_vec!(blocks[i][0], self.state[0]);
+            add_assign_vec!(blocks[i][1], self.state[1]);
+            add_assign_vec!(blocks[i][2], self.state[2]);
+            add_assign_vec!(blocks[i][3], counter_val);
         }
         self.state[3] = add_counter!(self.state[3], self.ctrs[3], V);
     }
