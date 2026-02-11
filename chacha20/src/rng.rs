@@ -154,7 +154,6 @@ macro_rules! impl_chacha_rng {
         /// See the [`rand`](https://docs.rs/rand/) crate for more advanced RNG functionality.
         pub struct $Rng {
             core: ChaChaCore<$rounds, Legacy>,
-            index: usize,
             buffer: [u32; BUFFER_SIZE],
         }
 
@@ -164,11 +163,12 @@ macro_rules! impl_chacha_rng {
             #[inline]
             fn from_seed(seed: Self::Seed) -> Self {
                 let core = ChaChaCore::new_internal(&seed, &[0u8; 8]);
-                Self {
+                let mut rng = Self {
                     core,
-                    index: BUFFER_SIZE,
                     buffer: [0u32; BUFFER_SIZE],
-                }
+                };
+                rng.buffer[0] = BUFFER_SIZE as u32;
+                rng
             }
         }
 
@@ -177,26 +177,28 @@ macro_rules! impl_chacha_rng {
 
             #[inline]
             fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
-                if self.index >= BUFFER_SIZE {
+                let mut index = self.index();
+                if index >= BUFFER_SIZE {
                     self.core.generate(
                         self.buffer.as_mut_ptr() as *mut u8,
                         BUFFER_SIZE * 4,
                         &mut self.buffer,
                     );
-                    self.index = 0;
+                    index = 0;
                 }
-                let value = self.buffer[self.index];
-                self.index += 1;
+                let value = self.buffer[index];
+                *self.index_mut() = index as u32 + 1;
                 Ok(value)
             }
             #[inline]
             fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
-                let mut new_index;
+                let mut new_index: u32;
                 let (mut lo, mut hi);
-                if self.index < BUFFER_SIZE - 1 {
-                    lo = self.buffer[self.index];
-                    hi = self.buffer[self.index + 1];
-                    new_index = self.index + 2;
+                let index = self.index();
+                if index < BUFFER_SIZE - 1 {
+                    lo = self.buffer[index];
+                    hi = self.buffer[index + 1];
+                    new_index = index as u32 + 2;
                 } else {
                     lo = self.buffer[BUFFER_SIZE - 1];
                     self.core.generate(
@@ -206,27 +208,28 @@ macro_rules! impl_chacha_rng {
                     );
                     hi = self.buffer[0];
                     new_index = 1;
-                    if self.index >= BUFFER_SIZE {
+                    if index >= BUFFER_SIZE {
                         lo = hi;
                         hi = self.buffer[1];
                         new_index = 2;
                     }
                 }
-                self.index = new_index;
+                *self.index_mut() = new_index;
                 Ok((u64::from(hi) << 32) | u64::from(lo))
             }
             #[inline]
             fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Self::Error> {
                 let dest_len = dest.len();
-                let remaining = ((BUFFER_SIZE * 4) - (self.index * 4)).min(dest_len);
+                let index = self.index();
+                let remaining = ((BUFFER_SIZE * 4) - (index * 4)).min(dest_len);
 
                 let mut dest_pos = 0;
 
-                if remaining != 0 && self.index < BUFFER_SIZE && self.index != 0 {
+                if remaining != 0 && index < BUFFER_SIZE && index != 0 {
                     let (consumed_u32, filled_u8) =
-                        fill_via_chunks(&self.buffer.as_ref()[self.index..], &mut dest[0..]);
-                    self.index += consumed_u32;
-                    debug_assert!(self.index <= BUFFER_SIZE);
+                        fill_via_chunks(&self.buffer.as_ref()[index..], &mut dest[0..]);
+                    *self.index_mut() += consumed_u32 as u32;
+                    debug_assert!(index <= BUFFER_SIZE);
                     dest_pos += filled_u8;
 
                     if dest_len == dest_pos {
@@ -248,7 +251,7 @@ macro_rules! impl_chacha_rng {
 
                 let (consumed_u32, _filled_u8) =
                     fill_via_chunks(&self.buffer.as_ref()[0..], &mut dest[dest_pos..]);
-                self.index = consumed_u32;
+                *self.index_mut() = consumed_u32 as u32;
                 Ok(())
             }
         }
@@ -288,31 +291,42 @@ macro_rules! impl_chacha_rng {
             #[inline]
             #[must_use]
             pub fn get_word_pos(&self) -> u128 {
+                let index = self.index() % BUFFER_SIZE;
                 let mut block_counter =
                     (u64::from(self.core.state[13]) << 32) | u64::from(self.core.state[12]);
-                if self.index != 0 {
+                if index != 0 {
                     block_counter = block_counter.wrapping_sub(u64::from(BUF_BLOCKS));
                 }
-                let word_pos =
-                    u128::from(block_counter) * u128::from(BLOCK_WORDS) + self.index as u128;
+                let word_pos = u128::from(block_counter) * u128::from(BLOCK_WORDS) + index as u128;
                 // eliminate bits above the 68th bit
                 word_pos & ((1 << 68) - 1)
             }
 
+            /// Gets a mutable reference to the RNG's index.
+            #[inline(always)]
+            fn index_mut(&mut self) -> &mut u32 {
+                &mut self.buffer[0]
+            }
+
+            /// Gets the index as a `usize`.
+            #[inline(always)]
+            fn index(&self) -> usize {
+                self.buffer[0] as usize
+            }
+
+            /// Resets the RNG with a specified index.
             #[inline(always)]
             fn reset(&mut self, mut index: usize) {
-                self.buffer = [0u32; BUFFER_SIZE];
-                if index != 0 && index != BUFFER_SIZE {
-                    self.core.generate(
-                        self.buffer.as_mut_ptr() as *mut u8,
-                        BUFFER_SIZE * 4,
-                        &mut self.buffer,
-                    );
+                if index == 0 || index == BUFFER_SIZE {
+                    *self.index_mut() = BUFFER_SIZE as u32;
+                    return;
                 }
-                if index == 0 {
-                    index = BUFFER_SIZE;
-                }
-                self.index = index;
+                self.core.generate(
+                    self.buffer.as_mut_ptr() as *mut u8,
+                    BUFFER_SIZE * 4,
+                    &mut self.buffer,
+                );
+                *self.index_mut() = index as u32;
             }
 
             /// Set the offset from the start of the stream, in 32-bit words.
@@ -354,7 +368,7 @@ macro_rules! impl_chacha_rng {
             #[must_use]
             pub fn get_block_pos(&self) -> u64 {
                 let counter = self.core.get_block_pos();
-                let offset = self.index;
+                let offset = self.index() % 64;
                 if offset != 0 {
                     counter - u64::from(BUF_BLOCKS) + offset as u64 / 16
                 } else {
