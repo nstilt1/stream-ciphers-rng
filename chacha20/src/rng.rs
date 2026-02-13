@@ -301,7 +301,7 @@ macro_rules! impl_chacha_rng {
         impl $Rng {
             /// Initializes an RNG with a pointer
             #[inline]
-            fn seed_from_ptr(seed: *const u8) -> Self {
+            pub fn seed_from_ptr(seed: *const u8) -> Self {
                 let core = unsafe { ChaChaCore::seed_from_ptr(seed) };
                 let mut rng = Self {
                     core,
