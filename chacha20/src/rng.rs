@@ -6,7 +6,7 @@ use core::fmt;
 use rand_core::{Infallible, SeedableRng, TryCryptoRng, TryRng};
 
 #[cfg(feature = "zeroize")]
-use zeroize::ZeroizeOnDrop;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::{
     ChaChaCore, R8, R12, R20, Rounds, backends,
@@ -35,6 +35,16 @@ impl<R: Rounds, V: Variant> SeedableRng for ChaChaCore<R, V> {
     #[inline]
     fn from_seed(seed: Self::Seed) -> Self {
         ChaChaCore::new_internal(&seed, &[0u8; 8])
+    }
+}
+
+impl<R: Rounds, V: Variant> ChaChaCore<R, V> {
+    /// Constructs a ChaChaCore from a pointer to a seed.
+    #[inline]
+    pub unsafe fn seed_from_ptr(ptr: *const u8) -> Self {
+        let arr = ptr.cast_array::<32>();
+        let arr = unsafe { *arr };
+        ChaChaCore::new_internal(&arr, &[0u8; 8])
     }
 }
 
@@ -172,6 +182,13 @@ macro_rules! impl_chacha_rng {
             }
         }
 
+        #[cfg(feature = "zeroize")]
+        impl Drop for $Rng {
+            fn drop(&mut self) {
+                self.buffer.zeroize();
+            }
+        }
+
         impl TryRng for $Rng {
             type Error = Infallible;
 
@@ -282,6 +299,17 @@ macro_rules! impl_chacha_rng {
         }
 
         impl $Rng {
+            /// Initializes an RNG with a pointer
+            #[inline]
+            fn seed_from_ptr(seed: *const u8) -> Self {
+                let core = unsafe { ChaChaCore::seed_from_ptr(seed) };
+                let mut rng = Self {
+                    core,
+                    buffer: [0u32; BUFFER_SIZE],
+                };
+                rng.buffer[0] = BUFFER_SIZE as u32;
+                rng
+            }
             /// Get the offset from the start of the stream, in 32-bit words.
             ///
             /// Since the generated blocks are 64 words (2<sup>6</sup>) long and the
