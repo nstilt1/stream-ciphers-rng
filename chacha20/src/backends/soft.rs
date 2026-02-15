@@ -55,6 +55,7 @@ impl<R: Rounds, V: Variant> Backend<'_, R, V> {
         fill_buffer: bool,
         buffer: &mut [u32; 64],
     ) {
+        let mut block_ptr = dest_ptr as *mut u32;
         for _ in 0..(num_bytes / 256) {
             for block in 0..4 {
                 let res = run_rounds::<R>(&self.0.state);
@@ -64,7 +65,6 @@ impl<R: Rounds, V: Variant> Backend<'_, R, V> {
                 self.0.state[13] = (ctr >> 32) as u32;
 
                 unsafe {
-                    let mut block_ptr = dest_ptr as *mut u32;
                     for val in res.iter() {
                         block_ptr.write_unaligned(val.to_le());
                         block_ptr = block_ptr.add(1);

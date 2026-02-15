@@ -613,4 +613,12 @@ mod tests {
         }
         unsafe { dealloc(ptr, layout) };
     }
+
+    #[test]
+    fn next_u64_tests() {
+        let mut rng = ChaCha8Rng::from_seed([0u8; 32]);
+        for _ in 0..100 {
+            assert_ne!(rng.next_u64(), 0);
+        }
+    }
 }
