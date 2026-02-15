@@ -18,6 +18,20 @@ cipher::stream_cipher_seek_test!(xchacha20_seek, XChaCha20);
 #[cfg(feature = "legacy")]
 cipher::stream_cipher_seek_test!(chacha20legacy_seek, ChaCha20Legacy);
 
+macro_rules! dual_test {
+    ($name:ident, $body:block) => {
+        #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+        #[cfg_attr(not(target_arch = "wasm32"), test)]
+        fn $name() $body
+    };
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn _install_panic_hook() {
+    console_error_panic_hook::set_once();
+}
+
 #[cfg(feature = "cipher")]
 mod chacha20test {
     use chacha20::{ChaCha20, KeyIvInit};
@@ -69,8 +83,7 @@ mod chacha20test {
         "
     );
 
-    #[test]
-    fn chacha20_keystream() {
+    dual_test!(chacha20_keystream, {
         let mut cipher = ChaCha20::new(&KEY.into(), &IV.into());
 
         // The test vectors omit the first 64-bytes of the keystream
@@ -80,7 +93,7 @@ mod chacha20test {
         let mut buf = [0u8; 114];
         cipher.apply_keystream(&mut buf);
         assert_eq!(&buf[..], &KEYSTREAM[..]);
-    }
+    });
 
     #[test]
     fn chacha20_encryption() {

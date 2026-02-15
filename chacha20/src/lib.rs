@@ -1,4 +1,4 @@
-#![no_std]
+#![cfg_attr(all(target_arch = "wasm32", not(feature = "std")), no_std)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![doc = include_str!("../README.md")]
 #![doc(
@@ -92,6 +92,8 @@
 //! [ChaCha]: https://tools.ietf.org/html/rfc8439
 //! [Salsa]: https://en.wikipedia.org/wiki/Salsa20
 //! [`chacha20poly1305`]: https://docs.rs/chacha20poly1305
+#[cfg(all(target_arch = "wasm32", not(feature = "std")))]
+extern crate panic_abort;
 
 pub mod variants;
 
@@ -376,6 +378,10 @@ impl<R: Rounds, V: Variant> StreamCipherCore for ChaChaCore<R, V> {
                 unsafe {
                     backends::neon::inner::<R, _, V>(&mut self.state, f);
                 }
+            } else if #[cfg(target_family = "wasm")] {
+                unsafe {
+                    backends::wasm::inner::<R, _, V>(&mut self.state, f);
+                }
             } else {
                 f.call(&mut backends::soft::Backend(self));
             }
@@ -425,4 +431,29 @@ pub(crate) fn quarter_round(
     state[c] = state[c].wrapping_add(state[d]);
     state[b] ^= state[c];
     state[b] = state[b].rotate_left(7);
+}
+
+macro_rules! dual_test {
+    ($name:ident, $body:block) => {
+        #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+        #[cfg_attr(not(target_arch = "wasm32"), test)]
+        fn $name() $body
+    };
+}
+
+#[cfg(all(test, target_arch = "wasm32"))]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn _install_panic_hook() {
+    console_error_panic_hook::set_once();
+}
+
+#[cfg(all(test, target_arch = "wasm32"))]
+mod wasm_tests {
+    use wasm_bindgen_test::*;
+
+    #[wasm_bindgen_test]
+    fn smoke() {
+        // No JS APIs here—just prove the harness runs.
+        assert_eq!(2 + 2, 4);
+    }
 }

@@ -5,6 +5,8 @@ use cfg_if::cfg_if;
 cfg_if! {
     if #[cfg(chacha20_backend = "soft")] {
         pub(crate) mod soft;
+    } else if #[cfg(target_family = "wasm")] {
+        pub(crate) mod wasm;
     } else if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
         cfg_if! {
             if #[cfg(all(chacha20_avx512, chacha20_backend = "avx512"))] {

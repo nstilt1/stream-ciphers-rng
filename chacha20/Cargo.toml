@@ -33,11 +33,23 @@ cpufeatures = "0.3"
 cipher = { version = "0.5", features = ["dev"] }
 hex-literal = "1"
 original_chacha = { package = "chacha20", version = "0.10", default-features = false, features = ["rng"] }
+wasm-bindgen-test = "0.3"
+console_error_panic_hook = "0.1"
+
+[target.'cfg(all(target_arch = "wasm32", not(feature = "std")))'.dependencies]
+panic-abort = { version = "0.3", optional = true }
+
+[package.metadata.wasm-bindgen]
+test = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
 
 [features]
 default = ["cipher"]
 legacy = ["cipher"]
 rng = ["dep:rand_core"]
+std = []
 xchacha = ["cipher"]
 
 [lints.rust]
